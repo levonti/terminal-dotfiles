@@ -66,7 +66,7 @@ function ssh() {
         print -u2 -- 'SSH kitten not found for a managed host'
         return 127
       fi
-      "$kitten_exe" ssh "$@"
+      "$kitten_exe" ssh --kitten env=force_color_prompt=yes "$@"
       return $?
     fi
   fi
