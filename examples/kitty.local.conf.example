@@ -1,0 +1,4 @@
+# Copy selected lines to ~/.config/kitty/kitty.local.conf on one device.
+# This optional file is loaded after the shared kitty.conf.
+
+# font_size 16.0

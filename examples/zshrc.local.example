@@ -1,0 +1,6 @@
+# Copy selected lines to ~/.zshrc.local on one device.
+# Loaded before zoxide, Starship and optional zsh plugins.
+# Keep real host paths, private aliases and tokens outside this public repo.
+
+# export PATH="$HOME/.local/bin:$PATH"
+# export STARSHIP_CONFIG="$HOME/.config/starship.local.toml"

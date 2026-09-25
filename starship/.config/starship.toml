@@ -1,0 +1,18 @@
+# The same prompt on macOS and Linux. Current directory and Git data remain dynamic.
+add_newline = false
+format = '$directory$git_branch$git_status$line_break$character'
+right_format = '$status$cmd_duration'
+
+[directory]
+truncation_length = 3
+truncation_symbol = '…/'
+
+[git_branch]
+symbol = 'git:'
+
+[status]
+disabled = false
+
+[character]
+success_symbol = '[❯](green)'
+error_symbol = '[❯](red)'

@@ -1,0 +1,13 @@
+.DS_Store
+*.swp
+*.swo
+*~
+**/.zsh_history
+**/.zcompdump*
+**/.zshrc.local
+**/.zshrc.local.post
+**/kitty.local.conf
+**/starship.local.toml
+**/.ssh/
+**/zoxide/
+private/

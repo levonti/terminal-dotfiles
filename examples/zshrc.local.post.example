@@ -1,0 +1,4 @@
+# Copy selected lines to ~/.zshrc.local.post on one device.
+# Loaded after the shared prompt and autosuggestions, before syntax highlighting.
+
+# alias ll='ls -lah'
