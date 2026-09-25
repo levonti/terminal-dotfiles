@@ -1,6 +1,6 @@
-# SSH policy for interactive Kitty sessions. The managed list is private and
-# empty by default; a matching entry permits the SSH kitten to prepare the
-# remote user's home directory. All other hosts use standard xterm terminfo.
+# SSH policy for interactive Kitty sessions. Host globs are private and
+# absent by default; a matching rule permits the SSH kitten to prepare the
+# remote user's home directory. Other hosts use standard xterm terminfo.
 function ssh() {
   emulate -L zsh
   local managed_file="$HOME/.config/terminal-dotfiles/managed-ssh-hosts"
@@ -21,19 +21,39 @@ function ssh() {
     esac
   done
 
-  local identity=''
+  local hostname=''
   if [[ -s $managed_file ]]; then
-    # -G resolves aliases and command-line user/port without connecting.
-    identity=$(command ssh -G "$@" 2>/dev/null | awk '
-      $1 == "user" { user = $2 }
-      $1 == "hostname" { hostname = $2 }
-      $1 == "port" { port = $2 }
-      END {
-        if (user != "" && hostname != "" && port != "")
-          print user "@" hostname ":" port
+    # -G resolves HostName and aliases without connecting to the host.
+    hostname=$(command ssh -G "$@" 2>/dev/null | awk '$1 == "hostname" { print $2; exit }')
+    if [[ -n $hostname ]] && awk -v host="$hostname" '
+      function glob_to_regex(glob, regex, i, c) {
+        regex = "^"
+        for (i = 1; i <= length(glob); i++) {
+          c = substr(glob, i, 1)
+          if (c == "*") regex = regex ".*"
+          else if (c == "?") regex = regex "."
+          else if (c == "." || c == "^" || c == "$" || c == "[" ||
+                   c == "]" || c == "(" || c == ")" || c == "{" ||
+                   c == "}" || c == "+" || c == "|" || c == "\\")
+            regex = regex "\\" c
+          else regex = regex c
+        }
+        return regex "$"
       }
-    ')
-    if [[ -n $identity ]] && LC_ALL=C grep -Fqx -- "$identity" "$managed_file"; then
+      BEGIN { host = tolower(host); managed = 0 }
+      {
+        rule = $0
+        sub(/\r$/, "", rule)
+        sub(/^[ \t]+/, "", rule)
+        sub(/[ \t]+$/, "", rule)
+        if (rule == "" || substr(rule, 1, 1) == "#") next
+        excluded = substr(rule, 1, 1) == "!"
+        if (excluded) rule = substr(rule, 2)
+        if (rule != "" && host ~ glob_to_regex(tolower(rule)))
+          managed = excluded ? 0 : 1
+      }
+      END { exit(managed ? 0 : 1) }
+    ' "$managed_file"; then
       local kitten_exe=''
       if (( $+commands[kitten] )); then
         kitten_exe=$commands[kitten]
