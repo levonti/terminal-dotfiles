@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `~/.zshrc.local` | В начале `.zshrc` | `PATH`, переменные окружения, личные алиасы; `STARSHIP_CONFIG` должен быть задан здесь до инициализации Starship |
 | `~/.zshrc.local.post` | После общих настроек, перед подсветкой синтаксиса | Переопределение алиасов, функций и клавиш zsh |
+| `~/.bashrc.local` | Перед Starship в дополнительном `.bashrc` | Личные алиасы, пути и `STARSHIP_CONFIG` для Bash |
 | `~/.config/kitty/kitty.local.conf` | В конце `kitty.conf` | Настройки терминала для конкретного устройства |
 | `~/.config/starship.local.toml` | Только если задан `STARSHIP_CONFIG` | Полная локальная замена общего `starship.toml` |
 | `~/.config/terminal-dotfiles/managed-ssh-hosts` | При интерактивном `ssh` из Kitty | Приватные маски доменов и IP-адресов для `kitten ssh` |
