@@ -1,5 +1,11 @@
 # Shared interactive zsh setup for macOS and Linux.
 # Host-specific PATH and aliases belong in ~/.zshrc.local.
+
+# Make user-installed tools and Homebrew visible before initialization.
+typeset -U path
+for bin_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin"; do
+  [[ -d "$bin_dir" ]] && path=("$bin_dir" $path)
+done
 [[ -r "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
 
 # Native completion. Homebrew completions are optional on Linux.
@@ -31,7 +37,7 @@ if (( $+commands[starship] )); then
 fi
 
 # Small zsh features without a plugin framework.
-for plugin_file in /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh; do
+for plugin_file in /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh; do
   if [[ -r $plugin_file ]]; then
     source "$plugin_file"
     break
@@ -42,7 +48,7 @@ done
 # Load before syntax highlighting, which should remain last.
 [[ -r "$HOME/.zshrc.local.post" ]] && source "$HOME/.zshrc.local.post"
 
-for plugin_file in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do
+for plugin_file in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do
   if [[ -r $plugin_file ]]; then
     source "$plugin_file"
     break

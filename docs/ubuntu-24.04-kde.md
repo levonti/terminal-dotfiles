@@ -1,14 +1,7 @@
 # Ubuntu 24.04 KDE Plasma
 
-1. Установите базовые пакеты и плагины zsh:
+Начните с полной [установки Linux с чистого устройства](linux-install.md): она включает Git, Stow, zsh, плагины, Kitty, Starship, zoxide, fzf, шрифт, ярлык приложения и смену shell. В шаге базовых пакетов выполните **блок Ubuntu** для `universe`, затем общий блок. Когда общее руководство направит вас в README, выполните там клонирование и Stow.
 
-   ```sh
-   sudo apt update
-   sudo apt install zsh stow zsh-autosuggestions zsh-syntax-highlighting
-   ```
-
-2. Установите Kitty 0.49.0, Starship 1.26.0 и zoxide 0.9.9 из подходящих выпусков: [Kitty](https://sw.kovidgoyal.net/kitty/binary/), [Starship](https://starship.rs/guide/#step-1-install-starship), [zoxide](https://github.com/ajeetdsouza/zoxide#installation). Сверьте версии командами `kitty --version`, `starship --version` и `zoxide --version`.
-3. Установите `MesloLGS NF`. Затем клонируйте репозиторий и примените Stow по [README](../README.md#установка). Проверьте запуск через `zsh -l`.
-4. В «Параметры системы → Комбинации клавиш» KDE Plasma проверьте сочетания из [таблицы](keybindings.md), прежде всего `Super+Left/Right`. При конфликте измените системное действие, чтобы Kitty получал ту же клавишу, что на Mac.
+В «Параметры системы → Комбинации клавиш» KDE Plasma проверьте сочетания из [таблицы](keybindings.md), прежде всего `Super+Left/Right`. При конфликте измените системное действие, чтобы Kitty получал ту же клавишу, что на Mac.
 
 Личные PATH, алиасы и исключения для этого устройства храните в [локальных файлах](local-overrides.md).

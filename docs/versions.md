@@ -1,16 +1,17 @@
-# Проверенные версии
+# Версии компонентов
 
-На macOS при подготовке репозитория проверены:
+На исходном Mac при подготовке репозитория были проверены:
 
 | Компонент | Версия |
 | --- | --- |
 | Kitty | 0.49.0 |
 | Starship | 1.26.0 |
 | zoxide | 0.9.9 |
+| fzf | 0.71.0 |
 | zsh | 5.9 |
 | zsh-autosuggestions | 0.7.1 |
 | zsh-syntax-highlighting | 0.8.0 |
 
-Шрифт в общем `kitty.conf` — `MesloLGS NF`, размер 15 pt. Устанавливайте одинаковый вариант шрифта на каждом устройстве. Версии и поведение Ubuntu 24.04 GNOME, Ubuntu 24.04 KDE Plasma и Debian 13 KDE Plasma пока не проверялись на самих Linux-устройствах.
+Инструкции чистой установки закрепляют версии Kitty, Starship, zoxide, fzf и [четыре файла шрифта](https://github.com/romkatv/powerlevel10k-media/tree/145eb9fbc2f42ee408dacd9b22d8e6e0e553f83d). Плагины zsh устанавливаются из Homebrew или системного APT и могут иметь другие версии. Шрифт в общем `kitty.conf` — `MesloLGS NF`, размер 15 pt.
 
-Для Kitty используйте один выпуск на всех устройствах: официальный установщик поддерживает установку конкретной версии на macOS и Linux. [Установка Kitty](https://sw.kovidgoyal.net/kitty/binary/).
+Ubuntu 24.04 GNOME, Ubuntu 24.04 KDE Plasma и Debian 13 KDE Plasma пока не проверялись на самих целевых устройствах. Их инструкции рассчитаны на `amd64` и `arm64`.
