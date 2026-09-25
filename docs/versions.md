@@ -9,7 +9,7 @@
 | zoxide | 0.9.9 |
 | fzf | 0.71.0 |
 | zsh | 5.9 |
-| Bash (дополнительный пакет) | 5.3.9 |
+| Bash | 5.3.9 |
 | zsh-autosuggestions | 0.7.1 |
 | zsh-syntax-highlighting | 0.8.0 |
 
