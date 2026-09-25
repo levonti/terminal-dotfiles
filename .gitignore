@@ -9,5 +9,6 @@
 **/kitty.local.conf
 **/starship.local.toml
 **/.ssh/
+**/managed-ssh-hosts
 **/zoxide/
 private/

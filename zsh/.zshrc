@@ -36,6 +36,9 @@ if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 fi
 
+# Route interactive SSH from Kitty according to the private managed-host list.
+[[ -r "$HOME/.config/terminal-dotfiles/ssh.zsh" ]] && source "$HOME/.config/terminal-dotfiles/ssh.zsh"
+
 # Small zsh features without a plugin framework.
 for plugin_file in /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh; do
   if [[ -r $plugin_file ]]; then
