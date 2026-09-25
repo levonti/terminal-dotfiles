@@ -1,7 +1,18 @@
 # The same prompt on macOS and Linux. Current directory and Git data remain dynamic.
 add_newline = false
-format = '$directory$git_branch$git_status$line_break$character'
+format = '$hostname$shell$directory$git_branch$git_status$line_break$character'
 right_format = '$status$cmd_duration'
+
+[hostname]
+ssh_only = true
+format = '[$hostname]($style) '
+
+[shell]
+disabled = false
+bash_indicator = 'bash'
+zsh_indicator = 'zsh'
+format = '[$indicator]($style) '
+style = 'bold cyan'
 
 [directory]
 truncation_length = 3
