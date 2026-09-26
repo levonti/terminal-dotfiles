@@ -36,7 +36,7 @@ if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 fi
 
-# Route interactive SSH from Kitty according to the private managed-host list.
+# Use compatible terminfo for every SSH destination.
 [[ -r "$HOME/.config/terminal-dotfiles/ssh.zsh" ]] && source "$HOME/.config/terminal-dotfiles/ssh.zsh"
 
 # Small zsh features without a plugin framework.

@@ -20,6 +20,12 @@ if [ -r "$HOME/.bashrc.local" ]; then
   . "$HOME/.bashrc.local"
 fi
 
+# Match Zsh: ordinary SSH uses compatible terminfo on every destination.
+# Leave the local terminal's TERM unchanged.
+ssh() {
+  TERM=xterm-256color command ssh "$@"
+}
+
 if command -v zoxide >/dev/null 2>&1; then
   eval "$(zoxide init bash)"
 fi
