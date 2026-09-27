@@ -20,6 +20,13 @@ if [ -r "$HOME/.bashrc.local" ]; then
   . "$HOME/.bashrc.local"
 fi
 
+# Option on macOS / Alt on Linux: move by words in Emacs and Vi modes.
+for terminal_dotfiles_keymap in emacs-standard vi-insert vi-command; do
+  bind -m "$terminal_dotfiles_keymap" '"\e[1;3D": backward-word'
+  bind -m "$terminal_dotfiles_keymap" '"\e[1;3C": forward-word'
+done
+unset terminal_dotfiles_keymap
+
 # Match Zsh: ordinary SSH uses compatible terminfo on every destination.
 # Leave the local terminal's TERM unchanged.
 ssh() {

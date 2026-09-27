@@ -24,6 +24,9 @@ for keymap in emacs viins vicmd; do
   bindkey -M "$keymap" $'\eOF' end-of-line
   bindkey -M "$keymap" $'\e[5~' up-line-or-history
   bindkey -M "$keymap" $'\e[6~' down-line-or-history
+  # Option on macOS / Alt on Linux: match Readline word movement.
+  bindkey -M "$keymap" $'\e[1;3D' emacs-backward-word
+  bindkey -M "$keymap" $'\e[1;3C' emacs-forward-word
 done
 
 # Directory jumping with zoxide defaults: z and zi.
