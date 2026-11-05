@@ -1,6 +1,6 @@
 # The same prompt on macOS and Linux. Current directory and Git data remain dynamic.
 add_newline = false
-format = '$hostname$shell$directory$git_branch$git_status$line_break$character'
+format = '$hostname$shell$directory$git_branch$git_status$kubernetes$line_break$character'
 right_format = '$status$cmd_duration'
 
 [hostname]
@@ -20,6 +20,12 @@ truncation_symbol = '…/'
 
 [git_branch]
 symbol = 'git:'
+
+[kubernetes]
+disabled = false
+detect_env_vars = ['KUBIE_ACTIVE']
+format = '[$symbol$context( \($namespace\))]($style) '
+style = 'bold #ebcb8b'
 
 [status]
 disabled = false
