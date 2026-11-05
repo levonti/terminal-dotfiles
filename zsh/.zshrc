@@ -1,6 +1,8 @@
 # Shared interactive zsh setup for macOS and Linux.
 # Host-specific PATH and aliases belong in ~/.zshrc.local.
 
+alias k='kubectl'
+
 # Make user-installed tools and Homebrew visible before initialization.
 typeset -U path
 for bin_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin"; do
