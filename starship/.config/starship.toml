@@ -1,25 +1,46 @@
-# The same prompt on macOS and Linux. Current directory and Git data remain dynamic.
-add_newline = false
+# Shared prompt: directory emphasis, quieter shell label, explicit Git counts.
+add_newline = true
 format = '$hostname$shell$directory$git_branch$git_status$kubernetes$line_break$character'
 right_format = '$status$cmd_duration'
 
 [hostname]
 ssh_only = true
 format = '[$hostname]($style) '
+style = 'bold #a3be8c'
 
 [shell]
 disabled = false
 bash_indicator = 'bash'
 zsh_indicator = 'zsh'
 format = '[$indicator]($style) '
-style = 'bold cyan'
+style = '#a2adbd'
 
 [directory]
 truncation_length = 3
 truncation_symbol = '…/'
+format = '[$path]($style)[$read_only]($read_only_style) '
+repo_root_format = '[$repo_root$path]($style)[$read_only]($read_only_style) '
+style = 'bold #88c0d0'
+repo_root_style = 'bold #88c0d0'
 
 [git_branch]
 symbol = 'git:'
+format = '[$symbol$branch(:$remote_branch)]($style) '
+style = '#b48ead'
+
+[git_status]
+format = '([$all_status$ahead_behind]($style))'
+style = '#ebcb8b'
+conflicted = '[conflict:$count](bold #bf616a) '
+ahead = '↑$count '
+behind = '↓$count '
+diverged = '↑$ahead_count ↓$behind_count '
+untracked = '?$count '
+stashed = 'stash:$count '
+modified = '~$count '
+staged = '+$count '
+renamed = 'rename:$count '
+deleted = '-$count '
 
 [kubernetes]
 disabled = false
@@ -29,7 +50,13 @@ style = 'bold #ebcb8b'
 
 [status]
 disabled = false
+format = '[exit:$status]($style) '
+style = '#bf616a'
+
+[cmd_duration]
+format = '[$duration]($style) '
+style = '#a2adbd'
 
 [character]
-success_symbol = '[❯](green)'
-error_symbol = '[❯](red)'
+success_symbol = '[❯](#a3be8c)'
+error_symbol = '[❯](#bf616a)'
