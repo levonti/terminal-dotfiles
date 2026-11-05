@@ -1,0 +1,353 @@
+"""Local macOS/Linux network history in Kitty's horizontal tab bar.
+
+The native timer reads kernel byte counters without spawning programs.
+Physical interfaces are counted once, excluding tunnels and bridges.
+Linux network namespaces without hardware use their default interface.
+"""
+
+from collections import deque
+import ctypes as c
+from math import ceil, log10
+from pathlib import Path
+import re
+import sys
+from time import monotonic
+
+
+class InterfaceData64(c.Structure):
+    # Public Darwin ABI: net/if_var.h, struct if_data64, packed to 4 bytes.
+    _pack_ = 4
+    _fields_ = [("metadata", c.c_ubyte * 8), ("mtu", c.c_uint32), ("metric", c.c_uint32),
+                ("baudrate", c.c_uint64), ("packets", c.c_uint64 * 5),
+                ("ibytes", c.c_uint64), ("obytes", c.c_uint64),
+                ("multicast_drops", c.c_uint64 * 4), ("timing", c.c_uint32 * 2),
+                ("lastchange", c.c_uint32 * 2)]
+
+
+class InterfaceMibData(c.Structure):
+    # Public Darwin ABI: net/if_mib.h, struct ifmibdata.
+    _fields_ = [("name", c.c_char * 16), ("flags_queue", c.c_uint32 * 9),
+                ("data", InterfaceData64)]
+
+
+def parse_counters(output):
+    counters = {}
+    size = c.sizeof(InterfaceMibData)
+    if len(output) % size:
+        raise ValueError("incomplete interface snapshot")
+    for pos in range(0, len(output), size):
+        interface = InterfaceMibData.from_buffer_copy(output, pos)
+        name = interface.name.decode("ascii", "replace")
+        if re.fullmatch(r"en\d+", name):
+            counters[name] = (interface.data.ibytes, interface.data.obytes)
+    return counters
+
+
+_sysctl = None
+
+
+def read_mac_counters():
+    global _sysctl
+    if _sysctl is None:
+        if c.sizeof(InterfaceMibData) != 180 or InterfaceMibData.data.offset != 52:
+            raise ValueError("unsupported Darwin interface ABI")
+        _sysctl = c.CDLL(None, use_errno=True).sysctl
+        _sysctl.argtypes = [c.POINTER(c.c_int), c.c_uint, c.c_void_p, c.POINTER(c.c_size_t), c.c_void_p, c.c_size_t]
+        _sysctl.restype = c.c_int
+    # CTL_NET / PF_LINK / NETLINK_GENERIC / IFMIB_IFALLDATA / IFDATA_GENERAL.
+    # The routing API's if_msghdr2 can contain truncated byte counters on macOS.
+    mib = (c.c_int * 6)(4, 18, 0, 3, 0, 1)
+    for _ in range(3):
+        size = c.c_size_t()
+        if _sysctl(mib, 6, None, c.byref(size), None, 0):
+            raise OSError(c.get_errno(), "network counters unavailable")
+        if size.value > 8 * 1024 * 1024:
+            raise ValueError("interface snapshot too large")
+        buffer = c.create_string_buffer(size.value)
+        if not _sysctl(mib, 6, buffer, c.byref(size), None, 0):
+            return parse_counters(buffer.raw[:size.value])
+        if c.get_errno() != 12:  # ENOMEM: an interface changed between the two reads.
+            raise OSError(c.get_errno(), "network counters unavailable")
+    raise OSError("interfaces kept changing")
+
+
+def linux_default_interface(proc_net, interfaces):
+    routes = []
+    try:
+        for line in (proc_net / "route").read_text().splitlines()[1:]:
+            fields = line.split()
+            if len(fields) >= 11 and fields[0] in interfaces:
+                try:
+                    if fields[1] == fields[7] == "00000000" and int(fields[3], 16) & 1:
+                        routes.append((int(fields[6]), fields[0]))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    if not routes:
+        try:
+            for line in (proc_net / "ipv6_route").read_text().splitlines():
+                fields = line.split()
+                if len(fields) == 10 and fields[-1] in interfaces:
+                    try:
+                        if fields[0] == "0" * 32 and fields[1] == "00" and int(fields[8], 16) & 1:
+                            routes.append((int(fields[5], 16), fields[-1]))
+                    except ValueError:
+                        continue
+        except OSError:
+            pass
+    return min(routes)[1] if routes else None
+
+
+def read_linux_counters(proc_net=Path("/proc/net"), sys_net=Path("/sys/class/net")):
+    counters = {}
+    for line in (proc_net / "dev").read_text().splitlines():
+        if ":" not in line:
+            continue
+        name, values = line.rsplit(":", 1)
+        name, fields = name.strip(), values.split()
+        if name == "lo" or len(fields) != 16:
+            continue
+        try:
+            rx, tx = int(fields[0]), int(fields[8])
+        except ValueError:
+            continue
+        if rx >= 0 and tx >= 0:
+            counters[name] = (rx, tx)
+    physical = {name: value for name, value in counters.items() if (sys_net / name / "device").exists()}
+    if physical:
+        return physical
+    # Containers expose veth devices without a hardware parent. Choose one
+    # default interface rather than summing bridge and tunnel traffic twice.
+    interface = linux_default_interface(proc_net, counters)
+    return {interface: counters[interface]} if interface else {}
+
+
+def read_counters():
+    if sys.platform == "darwin":
+        return read_mac_counters()
+    if sys.platform.startswith("linux"):
+        return read_linux_counters()
+    return {}
+
+
+class NetworkHistory:
+    def __init__(self):
+        self.samples = deque(maxlen=90)
+        self.previous = None
+        self.previous_time = None
+        self.rx = self.tx = 0.0
+        self.status = "starting"
+
+    def update(self, counters, now):
+        if not counters:
+            self.previous = self.previous_time = None
+            self.samples.append((now, None, None))
+            self.status = "unavailable"
+            return
+        elapsed = now - self.previous_time if self.previous_time is not None else 0
+        common = counters.keys() & self.previous.keys() if self.previous else set()
+        # Resume, reconnect, new interfaces and resets must not create spikes.
+        reset = any(counters[n][i] < self.previous[n][i] for n in common for i in (0, 1))
+        if common and 0 < elapsed <= 5 and not reset:
+            self.rx, self.tx = [
+                sum(counters[n][i] - self.previous[n][i] for n in common) * 8 / elapsed
+                for i in (0, 1)
+            ]
+            self.samples.append((now, self.rx, self.tx))
+            self.status = "ready"
+        else:
+            self.samples.append((now, None, None))
+            if elapsed > 5:
+                self.samples.clear()
+            self.status = "starting"
+        self.previous, self.previous_time = counters, now
+
+
+def chart_data(samples, now, count):
+    bins = [[None, None] for _ in range(count)]
+    for stamp, rx, tx in samples:
+        if not now - 60 < stamp <= now or rx is None:
+            continue
+        pos = min(count - 1, int((stamp - (now - 60)) * count / 60))
+        for channel, value in enumerate((rx, tx)):
+            bins[pos][channel] = max(bins[pos][channel] or 0, value)
+    peak = max((v or 0 for pair in bins for v in pair), default=0)
+    # A shared 1/2/5 scale keeps RX and TX comparable, with a quiet 100 kb/s floor.
+    peak = max(peak, 100_000)
+    decade = 10 ** int(log10(peak))
+    scale = next(m * decade for m in (1, 2, 5, 10) if m * decade >= peak)
+    glyphs = "▁▂▃▄▅▆▇█"
+    graphs = tuple(
+        "".join("·" if pair[c] is None else glyphs[min(7, ceil(pair[c] / scale * 7))] for pair in bins)
+        for c in (0, 1)
+    )
+    return graphs, scale
+
+
+def compact_rate(value):
+    for multiplier, suffix in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if value >= multiplier:
+            number = value / multiplier
+            return (f"{number:.1f}" if number < 99.95 else f"{number:.0f}") + suffix
+    return f"{value:.0f}"
+
+
+class NetworkMonitor:
+    def __init__(self):
+        from kitty.fast_data_types import add_timer
+        self.history = NetworkHistory()
+        self.closed = False
+        self.sample()
+        self.timer = add_timer(self.refresh, 1.0, True)
+
+    def sample(self):
+        try:
+            counters = read_counters()
+        except (OSError, ValueError):
+            counters = {}
+        self.history.update(counters, monotonic())
+
+    def snapshot(self):
+        h = self.history
+        return list(h.samples), h.rx, h.tx, h.status
+
+    def refresh(self, timer_id):
+        from kitty.fast_data_types import get_boss, get_options
+        if get_options().tab_bar_style != "custom":
+            self.close()
+            return
+        boss = get_boss()
+        if boss and not self.closed:
+            self.sample()
+            for manager in boss.all_tab_managers:
+                manager.update_tab_bar_data()
+                manager.mark_tab_bar_dirty()
+
+    def close(self):
+        if self.closed:
+            return
+        from kitty.fast_data_types import remove_timer
+        self.closed = True
+        remove_timer(self.timer)
+
+
+_monitor = None
+
+
+def get_monitor():
+    global _monitor
+    if _monitor is None or _monitor.closed:
+        from kitty.fast_data_types import get_boss
+        boss = get_boss()
+        previous = getattr(boss, "_dotfiles_network_monitor", None)
+        if previous is not None:
+            previous.close()
+        _monitor = NetworkMonitor()
+        boss._dotfiles_network_monitor = _monitor
+    return _monitor
+
+
+def format_panel(snapshot, columns, now, platform):
+    samples, rx, tx, status = snapshot
+    compact = columns < 120
+    count = 6 if compact else 8
+    graphs, _ = chart_data(samples, now, count)
+    label = " Mac " if platform == "darwin" else " Linux "
+    segments = [(0xa2adbd, label)]
+    if status == "unavailable":
+        # An unavailable measurement is different from a measured zero.
+        segments += [(0xbf616a, "unavailable " if compact else "network unavailable ")]
+    else:
+        for color, arrow, graph, rate in ((0xa3be8c, "↓", graphs[0], rx), (0x88c0d0, "↑", graphs[1], tx)):
+            value = "" if compact else f" {compact_rate(rate) if status == 'ready' else '--':>5}b/s"
+            segments.append((color, f"{arrow}{graph}{value} "))
+    # Reserve the same width through warming, zero traffic and errors.
+    width = len(label) + 2 * (1 + count + (0 if compact else 9) + 1)
+    length = sum(len(text) for _, text in segments)
+    if length < width:
+        segments.append((0xa2adbd, " " * (width - length)))
+    return segments, width
+
+
+def panel_segments(columns):
+    return format_panel(get_monitor().snapshot(), columns, monotonic(), sys.platform)
+
+
+def allocate_widths(desired, active, available, priorities=()):
+    widths = [0] * len(desired)
+    # Distribute fairly, then spend spare room on the active tab first.
+    minimum = min(8, available // max(1, len(desired)))
+    for i, want in enumerate(desired):
+        widths[i] = min(want, minimum)
+    remaining = available - sum(widths)
+    for i in priorities:
+        extra = min(remaining, max(0, desired[i] - widths[i]))
+        widths[i] += extra
+        remaining -= extra
+    extra = min(remaining, max(0, min(desired[active], 26) - widths[active]))
+    widths[active] += extra
+    remaining -= extra
+    while remaining > 0:
+        changed = False
+        for i, want in enumerate(desired):
+            if widths[i] < want and remaining:
+                widths[i] += 1
+                remaining -= 1
+                changed = True
+        if not changed:
+            break
+    return widths
+
+
+def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data):
+    from kitty.fast_data_types import get_boss, wcswidth
+    from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade, truncate_line
+    from kitty.utils import color_as_int
+    if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom") or screen.columns < 60:
+        return draw_tab_with_fade(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data)
+
+    manager = get_boss().os_window_map.get(draw_data.os_window_id)
+    data = manager.tab_bar.last_laid_out_tabs if manager else (tab,)
+    segments, panel_width = panel_segments(screen.columns)
+    titles = []
+    for i, item in enumerate(data):
+        if not item.is_active and ": " in item.title:
+            host = item.title.split(": ", 1)[0]
+            if not host.startswith("root@"):
+                host = host.rsplit("@", 1)[-1]
+            titles.append(apply_title_template(draw_data, item._replace(title=host), i + 1).split("\n", 1)[0].rstrip())
+        else:
+            titles.append(apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip())
+    active = next((i for i, item in enumerate(data) if item.is_active), 0)
+    desired = [min(28, wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) + 1) for title in titles]
+    priorities = [i for i, item in enumerate(data) if item.title.startswith("root@")]
+    widths = allocate_widths(desired, active, max(0, screen.columns - panel_width - 1), priorities)
+    width = widths[index - 1]
+    if extra_data.for_layout:
+        screen.cursor.x = width
+        return width
+
+    start = sum(widths[:index - 1])
+    screen.cursor.x = start
+    screen.cursor.bg = (color_as_int(draw_data.tab_bg(tab)) << 8) | 2
+    screen.draw(" " * max(0, width - 1))
+    screen.cursor.x = start
+    if width > 1:
+        title = titles[index - 1]
+        if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) > width - 1:
+            title = truncate_line(title, width - 1)
+        draw_attributed_string(title, screen)
+    screen.cursor.x = start + width
+    end = max(start, screen.cursor.x - 1)
+    screen.cursor.bg = (color_as_int(draw_data.default_bg) << 8) | 2
+    screen.cursor.bold = screen.cursor.italic = False
+    if width:
+        screen.cursor.x -= 1
+        screen.draw(" ")
+    if is_last:
+        screen.cursor.x = screen.columns - panel_width
+        for color, text in segments:
+            screen.cursor.fg = (color << 8) | 2
+            screen.draw(text)
+    return end

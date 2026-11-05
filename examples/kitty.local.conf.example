@@ -2,3 +2,7 @@
 # This optional file is loaded after the shared kitty.conf.
 
 # font_size 16.0
+
+# Enable the optional RX/TX graphs after installing tab_bar.py with Stow.
+# tab_bar_style custom
+# tab_bar_min_tabs 1
