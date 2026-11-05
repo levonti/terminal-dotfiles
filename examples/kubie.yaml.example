@@ -1,0 +1,7 @@
+# Copy to ~/.kube/kubie.yaml and keep kubeconfigs on this device.
+configs:
+  include:
+    - ~/.kube/config
+
+prompt:
+  disable: true
