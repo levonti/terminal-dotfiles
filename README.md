@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `zsh` | `~/.zshrc`, `~/.config/terminal-dotfiles/ssh.zsh` | completion, zoxide, Starship, совместимый SSH и два необязательных локальных файла |
 | `bash` | `~/.bashrc` | Starship, zoxide и совместимый SSH для интерактивного Bash, приватные настройки в `~/.bashrc.local` |
-| `kitty` | `~/.config/kitty/kitty.conf` | внешний вид, вкладки, окна и сочетания `Command`/`Super` |
+| `kitty` | `~/.config/kitty/kitty.conf`, `~/.config/kitty/tab_bar.py` | внешний вид, вкладки, окна и сочетания `Command`/`Super` |
 | `starship` | `~/.config/starship.toml` | общий prompt |
 
 zoxide использует стандартные команды `z` и `zi`; для интерактивной команды `zi` устанавливается fzf. База посещённых каталогов создаётся на каждом устройстве отдельно. Oh My Zsh, Powerlevel10k и autojump не нужны.
@@ -26,7 +26,7 @@ stow --no-folding --target="$HOME" zsh kitty starship
 sh scripts/install-bash.sh
 ```
 
-На действительно чистом устройстве базовый Stow создаст четыре ссылки, а Bash-установщик — пятую. Если один из путей базового пакета уже занят обычным файлом, сохраните его отдельно и повторите Stow; он не перезаписывает такой файл молча. Личные `~/.zshrc.local`, `~/.zshrc.local.post` и `~/.config/kitty/kitty.local.conf` оставьте на месте.
+На действительно чистом устройстве базовый Stow создаст пять ссылок, а Bash-установщик — шестую. Если один из путей базового пакета уже занят обычным файлом, сохраните его отдельно и повторите Stow; он не перезаписывает такой файл молча. Личные `~/.zshrc.local`, `~/.zshrc.local.post` и `~/.config/kitty/kitty.local.conf` оставьте на месте.
 
 `--no-folding` оставляет каталоги в `$HOME` обычными каталогами: рядом с общими ссылками можно хранить приватные файлы. [Руководство GNU Stow](https://www.gnu.org/software/stow/manual/stow.html).
 
@@ -53,6 +53,8 @@ sh scripts/install-bash.sh
 ## Вкладки Kitty
 
 Плоская панель с зазорами, контрастной активной вкладкой, номерами и компактными названиями. Starship отделяет контекст от ввода команды и показывает Git-статус со счётчиками. [Оценка всего окна и варианты prompt](docs/appearance.md), [настройки вкладок](docs/kitty-tabs.md).
+
+Для Kitty можно отдельно включить [графики входящего и исходящего трафика](docs/network-panel.md) в локальном конфиге.
 
 ## SSH из Kitty
 
