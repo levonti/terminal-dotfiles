@@ -1,7 +1,11 @@
-# Copy to ~/.kube/kubie.yaml and keep kubeconfigs on this device.
+# Copy to ~/.kube/kubie.yaml. Keep kubeconfigs and backups outside this repo.
 configs:
   include:
-    - ~/.kube/config
+    - ~/.kube/configs/**/*.yaml
+    - ~/.kube/configs/**/*.yml
+
+  # ~/.kube/config may be a compatibility copy for kubectl or a generated file.
+  # Include it only if its contexts are absent from configs/ to avoid duplicates.
 
 prompt:
   disable: true

@@ -48,7 +48,7 @@ sh scripts/install-bash.sh
 
 ## Kubernetes в zsh
 
-Опциональный Kubie изолирует контекст и namespace между вкладками. В сессии Kubie Starship показывает контекст и выбранный namespace в первой строке prompt. Установка и проверка описаны в [руководстве по Kubie](docs/kubie.md).
+Опциональный Kubie изолирует контекст и namespace между вкладками и читает отдельные kubeconfig из `~/.kube/configs/`. Starship показывает активный контекст перед путём и Git, включая обычную оболочку вне Kubie: DEV зелёным, TEST жёлтым, PROD белым на красном фоне. Структура каталогов, установка и проверка описаны в [руководстве по Kubie](docs/kubie.md).
 
 ## Вкладки Kitty
 
