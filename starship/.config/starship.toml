@@ -46,20 +46,20 @@ deleted = '-$count '
 disabled = false
 # Display only the context explicitly selected in this Kubie session.
 detect_env_vars = ['KUBIE_ACTIVE']
-format = '[\[$symbol$context( ns:$namespace)\]]($style) '
+format = '[\[☸ k8s $symbol$context( ns:$namespace)\]]($style) '
 symbol = '? ENV '
 style = 'bold #b48ead'
 
 [[kubernetes.contexts]]
 context_pattern = 'dev[/:](?:[^/]+/)*([^/]+)'
 context_alias = 'DEV $1'
-symbol = '☸ '
+symbol = ''
 style = 'bold #a3be8c'
 
 [[kubernetes.contexts]]
 context_pattern = 'test[/:](?:[^/]+/)*([^/]+)'
 context_alias = 'TEST $1'
-symbol = '☸ '
+symbol = ''
 style = 'bold #ebcb8b'
 
 [[kubernetes.contexts]]
