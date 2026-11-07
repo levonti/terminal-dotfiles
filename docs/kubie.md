@@ -1,6 +1,6 @@
 # Kubie в zsh
 
-Kubie устанавливается отдельно на рабочих станциях с Kubernetes. Интерактивный zsh находит бинарник в Homebrew или `~/.local/bin` через общий `PATH`. Starship показывает активный контекст перед путём и Git в первой строке prompt, в том числе вне Kubie. Namespace появляется рядом, когда он задан в активном kubeconfig. [Руководство Kubie](https://github.com/kubie-org/kubie#usage), [модуль Kubernetes в Starship](https://starship.rs/config/#kubernetes).
+Kubie устанавливается отдельно на рабочих станциях с Kubernetes. Интерактивный zsh находит бинарник в Homebrew или `~/.local/bin` через общий `PATH`. В стартовой оболочке Kubernetes-индикатор скрыт. В каждой вкладке выберите контекст через `kubie ctx`: Kubie открывает отдельную сессию со своим временным kubeconfig. При наличии `KUBIE_ACTIVE` Starship показывает окружение и короткое имя кластера перед путём и Git в первой строке prompt. Namespace появляется рядом, когда он задан во временном kubeconfig сессии. `exit` возвращает в стартовую оболочку и скрывает индикатор; выбор в остальных вкладках сохраняется. [Руководство Kubie](https://github.com/kubie-org/kubie#usage), [модуль Kubernetes в Starship](https://starship.rs/config/#kubernetes).
 
 ## Структура kubeconfig и имена контекстов
 
@@ -32,12 +32,12 @@ Kubie сканирует `configs/` рекурсивно; служебный `~/
 
 | Префикс контекста | Вид | Пример |
 | --- | --- | --- |
-| `dev/` | Зелёный, метка `DEV` | `[☸ DEV local/example ns:app]` |
-| `test/` | Жёлтый, метка `TEST` | `[☸ TEST lab/example ns:app]` |
-| `prod/` | Белый на красном фоне, метка `! PROD` | `[! PROD corp/example/core01 ns:payments]` |
+| `dev/` | Зелёный, метка `DEV` | `[☸ DEV example ns:app]` |
+| `test/` | Жёлтый, метка `TEST` | `[☸ TEST example ns:app]` |
+| `prod/` | Белый на красном фоне, метка `! PROD` | `[! PROD core01 ns:payments]` |
 | Остальные | Фиолетовый, метка `? ENV` | `[? ENV default]` |
 
-Starship сопоставляет окружение по префиксу полного имени контекста. `dev/local/prod-simulator` остаётся DEV. Если активного контекста нет, индикатор не отображается. Явные `--context`, `--kubeconfig` и `-n` у конкретной команды могут переопределить показанный выбор.
+Starship сопоставляет окружение по префиксу полного имени контекста. `dev/local/prod-simulator` остаётся DEV. В prompt отображается только последняя часть имени контекста — имя кластера: `prod/lab/core01` превращается в `[! PROD core01 ns:app]`. Путь к kubeconfig и части `lab/`, `corp/<company>/` скрыты; полное уникальное имя сохраняется в меню `kubie ctx`. Индикатор отображается только внутри сессии Kubie с активным контекстом. Явные `--context`, `--kubeconfig` и `-n` у конкретной команды могут переопределить показанный выбор.
 
 ## Установка
 
@@ -52,10 +52,11 @@ mkdir -p "$HOME/.kube"
 
 Если файл уже есть, перенесите в него `prompt.disable: true` и шаблоны `configs.include` из образца, сохранив остальные локальные настройки. Этот параметр передаёт отображение контекста Starship. Если файлы пока лежат в корне `~/.kube/`, сначала перенесите их в выбранные каталоги и переименуйте контексты. Храните kubeconfig и список приватных путей вне репозитория. [Настройки Kubie](https://github.com/kubie-org/kubie#settings).
 
-При использовании собственного `STARSHIP_CONFIG` перенесите в него блок `[kubernetes]` и все `[[kubernetes.contexts]]` из общего TOML и добавьте `$kubernetes` перед `$directory` в его `format`. Удалите прежнее ограничение `detect_env_vars = ['KUBIE_ACTIVE']`, чтобы видеть контекст вне Kubie. При установке из отдельного бинарника можно подключить completion в `~/.zshrc.local.post` строкой `(( $+commands[kubie] )) && source <(kubie generate-completion zsh)`. [Локальные переопределения](local-overrides.md), [completion Kubie](https://github.com/kubie-org/kubie#autocompletion).
+При использовании собственного `STARSHIP_CONFIG` перенесите в него блок `[kubernetes]`, включая `detect_env_vars = ['KUBIE_ACTIVE']`, и все `[[kubernetes.contexts]]` из общего TOML и добавьте `$kubernetes` перед `$directory` в его `format`. При установке из отдельного бинарника можно подключить completion в `~/.zshrc.local.post` строкой `(( $+commands[kubie] )) && source <(kubie generate-completion zsh)`. [Локальные переопределения](local-overrides.md), [completion Kubie](https://github.com/kubie-org/kubie#autocompletion).
 
 ## Проверка в двух вкладках Kitty
 
-1. Выполните `kubie lint`: контексты должны быть уникальными, а ссылки на clusters и users — корректными. В обеих вкладках запомните вывод `kubectl config current-context` и состояние переменной `KUBECONFIG` командой `print -r -- "${KUBECONFIG-<unset>}"`. Команда `kubectl config current-context` читает локальный файл.
+1. Выполните `kubie lint`: контексты должны быть уникальными, а ссылки на clusters и users — корректными. Откройте две вкладки: в обеих Kubernetes-индикатор должен быть скрыт. Запомните вывод `kubectl config current-context` и состояние переменной `KUBECONFIG` командой `print -r -- "${KUBECONFIG-<unset>}"`. Команда `kubectl config current-context` читает локальный файл.
 2. В каждой вкладке выполните `kubie ctx` и выберите разные контексты. Сверьте prompt с `kubie info ctx`. Чтобы проверить namespace, задайте его через `kubie ctx ИМЯ_КОНТЕКСТА -n ИМЯ_NAMESPACE` или выберите через `kubie ns`. Эти команды по умолчанию обращаются к API выбранного кластера за списком namespace. Сверьте имя в prompt с `kubie info ns`.
-3. Выполните `exit` в первой вкладке. Проверьте, что исходные контекст и `KUBECONFIG` вернулись, а prompt показывает исходное окружение, если оно задано. Во второй вкладке должен остаться её собственный контекст. Затем выйдите и во второй вкладке.
+3. В первой вкладке смените namespace через `kubie ns` и проверьте, что `kubie info ctx` и `kubie info ns` во второй не изменились.
+4. Выполните `exit` в первой вкладке. Проверьте, что исходные контекст и `KUBECONFIG` вернулись, а Kubernetes-индикатор исчез. Во второй вкладке должен остаться её собственный контекст и namespace. Затем выйдите и во второй вкладке.
