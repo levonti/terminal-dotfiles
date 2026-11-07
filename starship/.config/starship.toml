@@ -46,7 +46,7 @@ deleted = '-$count '
 disabled = false
 # Display only the context explicitly selected in this Kubie session.
 detect_env_vars = ['KUBIE_ACTIVE']
-format = '[\[☸ k8s $symbol$context( ns:$namespace)\]]($style) '
+format = '[\[☸ $symbol$context( ns:$namespace)\]]($style) '
 symbol = '? ENV '
 style = 'bold #b48ead'
 
