@@ -41,14 +41,14 @@ if command -v starship >/dev/null 2>&1; then
   eval "$(starship init bash)"
 fi
 
-# Publish local Kubie metadata without replacing native shell integration titles.
+# Publish the same Kubernetes text as the prompt, scoped to this shell PID.
 if [[ -n ${KITTY_WINDOW_ID-} ]]; then
   _terminal_dotfiles_kubie_title() {
-    local previous_status=$? context namespace encoded=
-    if [[ -n ${KUBIE_ACTIVE-} ]] && command -v kubie >/dev/null 2>&1; then
-      if context=$(command kubie info ctx 2>/dev/null) &&
-         namespace=$(command kubie info ns 2>/dev/null) && [[ -n $context ]]; then
-        encoded=$(printf '%s' "k8s: $context${namespace:+/$namespace}" | command base64 | command tr -d '\r\n')
+    local previous_status=$? label encoded=
+    if [[ -n ${KUBIE_ACTIVE-} ]] && command -v starship >/dev/null 2>&1; then
+      label=$(command starship module kubernetes 2>/dev/null | command sed -E $'s/\033\\[[0-9;:]*m//g')
+      if [[ -n $label ]]; then
+        encoded=$(printf '%s' "$$|$label" | command base64 | command tr -d '\r\n')
       fi
     fi
     # Empty metadata clears a context when returning from a nested Kubie shell.
@@ -63,5 +63,42 @@ if [[ -n ${KITTY_WINDOW_ID-} ]]; then
       # shellcheck disable=SC2178,SC2128
       PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND[0]}; }_terminal_dotfiles_kubie_title"
     fi
+  fi
+fi
+
+# Remote title reporting for plain SSH, without replacing an existing DEBUG trap.
+if [[ -n ${SSH_TTY-}${SSH_CONNECTION-} ]] &&
+   [[ ${TERM-} == xterm* || ${TERM-} == screen* || ${TERM-} == tmux* ]]; then
+  _terminal_dotfiles_remote_title() {
+    local previous_status=$? location=$PWD host=${HOSTNAME%%.*} command_name='' title
+    [[ $location == "$HOME" ]] && location='~'
+    (( EUID == 0 )) && host="root@$host"
+    if [[ -n ${1-} ]]; then
+      command_name=${1#"${1%%[![:space:]]*}"}
+      command_name=${command_name%%[[:space:]]*}
+      command_name=${command_name##*/}
+    fi
+    title="$host: $location${command_name:+ · $command_name}"
+    printf '\033]2;%s\007' "${title//[[:cntrl:]]/}"
+    return "$previous_status"
+  }
+  _terminal_dotfiles_remote_preexec() {
+    local last_command
+    last_command=$(HISTTIMEFORMAT='' builtin history 1)
+    last_command=${last_command#*[[:digit:]]*[[:space:]]}
+    _terminal_dotfiles_remote_title "$last_command"
+  }
+  if [[ ${PROMPT_COMMAND[*]-} != *'_terminal_dotfiles_remote_title'* ]]; then
+    if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a '* ]]; then
+      PROMPT_COMMAND+=(_terminal_dotfiles_remote_title)
+    else
+      # shellcheck disable=SC2178,SC2128
+      PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND[0]}; }_terminal_dotfiles_remote_title"
+    fi
+  fi
+  # PS0 runs before each command in Bash 4.4+. Bash 3.2 still reports the directory.
+  if (( BASH_VERSINFO[0] > 4 || BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4 )) &&
+     [[ ${PS0-} != *'_terminal_dotfiles_remote_preexec'* ]]; then
+    PS0+='$( _terminal_dotfiles_remote_preexec )'
   fi
 fi

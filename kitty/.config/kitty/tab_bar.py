@@ -8,10 +8,13 @@ Linux network namespaces without hardware use their default interface.
 from collections import deque
 import ctypes as c
 from math import ceil, log10
+import os
 from pathlib import Path
 import re
+import shlex
 import sys
 from time import monotonic
+from urllib.parse import unquote, urlsplit
 
 
 class InterfaceData64(c.Structure):
@@ -233,11 +236,28 @@ class NetworkMonitor:
 
 
 _monitor = None
+_remote_locations = {}
+
+
+def plain_title(title):
+    title = re.sub(r"\x1b\[[0-9;:]*m", "", title)
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", title).strip()
+
+
+def command_name(command):
+    try:
+        words = shlex.split(plain_title(command))
+    except ValueError:
+        words = command.split()
+    # Show the executable, never arguments that may contain credentials.
+    while words and (re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[0]) or words[0] in ("command", "exec")):
+        words.pop(0)
+    return words[0].rsplit("/", 1)[-1] if words else ""
 
 
 def compact_title(title):
     # Parse only the shell's host: path convention; keep other labels intact.
-    title = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", title).strip()
+    title = plain_title(title)
     host, separator, detail = title.partition(": ")
     if separator and re.fullmatch(r"(?:[^\s@:/]+@)?[^\s@:/]+", host):
         if not host.startswith("root@"):
@@ -254,15 +274,119 @@ def compact_title(title):
     return title or "shell"
 
 
+def kubie_label(window):
+    if window.child_is_remote:
+        return ""
+    value = window.user_vars.get("terminal_dotfiles_kubie", "")
+    if not value:
+        return ""
+    # Reject metadata left by a nested shell, even if its parent has old hooks.
+    if not window.child.foreground_environ.get("KUBIE_ACTIVE"):
+        return ""
+    owner, separator, label = value.partition("|")
+    if not separator or not owner.isdecimal() or int(owner) < 1:
+        return ""  # Old, unscoped metadata must be refreshed by the shell.
+    try:
+        os.kill(int(owner), 0)
+    except OSError:
+        return ""
+    return plain_title(label)
+
+
+def remote_title(window, title):
+    key = window.id
+    host, directory = _remote_locations.get(key, ("", ""))
+    prefix, separator, detail = title.partition(": ")
+    if separator and re.fullmatch(r"(?:[^\s@:/]+@)?[^\s@:/]+", prefix):
+        new_host = prefix if prefix.startswith("root@") else prefix.rsplit("@", 1)[-1]
+        if new_host != host:
+            directory = ""
+        host = new_host
+    else:
+        detail = title
+    location, running, command = detail.partition(" · ")
+    if location.startswith(("/", "~", "…/")):
+        directory = compact_title(location)
+        command = command_name(command) if running else ""
+    else:
+        command = command_name(detail)
+    # OSC 7 is also available when a TUI replaces the shell's window title.
+    try:
+        reported = urlsplit(window.screen.last_reported_cwd or "")
+    except ValueError:
+        reported = urlsplit("")
+    if not directory and reported.scheme == "file" and reported.hostname and host and reported.hostname.split(".")[0] == host.rsplit("@", 1)[-1].split(".")[0]:
+        directory = compact_title(unquote(reported.path))
+    if len(_remote_locations) > 256:
+        _remote_locations.pop(next(iter(_remote_locations)))
+    _remote_locations[key] = host, directory
+    identity = f"{host}:{directory}" if host and directory else host or directory
+    if not identity:
+        return compact_title(title)
+    return f"{identity} · {command}" if command else identity
+
+
 def draw_title(data):
     from kitty.fast_data_types import get_boss
     tab = get_boss().tab_for_id(data["tab_id"])
     # An explicitly assigned name always wins, including names with ': '.
     if tab and tab.name:
-        return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", tab.name).strip()
+        return plain_title(tab.name)
     window = tab.active_window if tab else None
-    context = window.user_vars.get("terminal_dotfiles_kubie", "") if window else ""
-    return compact_title(context or data["title"])
+    title = plain_title(data["title"])
+    if window is None:
+        return compact_title(title)
+    key = (title, window.at_prompt, getattr(window.child, "pid_for_cwd", None),
+           window.user_vars.get("terminal_dotfiles_kubie", ""))
+    now = monotonic()
+    cached = getattr(window, "_dotfiles_title_cache", None)
+    # Kitty calls this for every tab during both layout and painting. Avoid
+    # repeating process/cwd lookups within one frame; expire state promptly.
+    if cached and cached[0] == key and now - cached[1] < 0.1:
+        return cached[2]
+    result = window_title(window, title)
+    window._dotfiles_title_cache = key, now, result
+    return result
+
+
+def window_title(window, title):
+    if window.child_is_remote:
+        return remote_title(window, title)
+    _remote_locations.pop(window.id, None)
+    cwd = window.get_cwd_of_child() or ""
+    directory = "~" if cwd == str(Path.home()) else compact_title(cwd) if cwd else ""
+    command = ""
+    # OSC 2 can arrive just before OSC 133 marks command execution. A non-path
+    # title already names that command, even while at_prompt still says True.
+    if not window.at_prompt or not title.startswith(("/", "~", "…/")):
+        argv = window.child.foreground_cmdline
+        executable = Path(argv[0]).name.lstrip("-") if argv else ""
+        if executable and executable not in ("bash", "zsh", "fish", "sh", "dash", "login", "kitten", "kitty"):
+            command = executable
+        elif not title.startswith(("/", "~", "…/")):
+            command = command_name(title)
+    context = kubie_label(window)
+    identity = " ".join(part for part in (context, directory) if part)
+    if not identity:
+        return compact_title(title)
+    return f"{identity} · {command}" if command else identity
+
+
+def fit_title(title, width):
+    from kitty.fast_data_types import wcswidth
+    from kitty.tab_bar import truncate_line
+    if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) <= width:
+        return title
+    identity, separator, command = title.rpartition(" · ")
+    if separator and width >= 12:
+        command_width = min(wcswidth(command), width // 2)
+        if wcswidth(command) > command_width:
+            command = truncate_line(command, command_width)
+        identity_width = width - command_width - 3
+        if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", identity)) > identity_width:
+            identity = truncate_line(identity, identity_width)
+        return identity + " · " + command
+    return truncate_line(title, width)
 
 
 def get_monitor():
@@ -335,7 +459,7 @@ def allocate_widths(desired, available, priorities=()):
 
 def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data):
     from kitty.fast_data_types import get_boss, wcswidth
-    from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade, truncate_line
+    from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade
     from kitty.utils import color_as_int
     if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom"):
         return draw_tab_with_fade(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data)
@@ -365,7 +489,7 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
     if width > 1:
         title = titles[index - 1]
         if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) > width - 1:
-            title = truncate_line(title, width - 1)
+            title = fit_title(title, width - 1)
         draw_attributed_string(title, screen)
     screen.cursor.x = start + width
     end = max(start, screen.cursor.x - 1)

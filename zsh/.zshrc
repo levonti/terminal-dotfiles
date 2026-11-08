@@ -41,15 +41,15 @@ if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 fi
 
-# Publish only the selected Kubie context/namespace to the local Kitty tab.
-# These info commands read local state; no Kubernetes API calls are needed.
+# Publish the same Kubernetes text as the prompt, scoped to this shell PID.
+# Starship reads the local kubeconfig; no Kubernetes API calls are needed.
 if [[ -n ${KITTY_WINDOW_ID-} ]]; then
   _terminal_dotfiles_kubie_title() {
-    local context namespace encoded=
-    if [[ -n ${KUBIE_ACTIVE-} ]] && (( $+commands[kubie] )); then
-      if context=$(command kubie info ctx 2>/dev/null) &&
-         namespace=$(command kubie info ns 2>/dev/null) && [[ -n $context ]]; then
-        encoded=$(printf '%s' "k8s: $context${namespace:+/$namespace}" | command base64 | command tr -d '\r\n')
+    local label encoded=
+    if [[ -n ${KUBIE_ACTIVE-} ]] && (( $+commands[starship] )); then
+      label=$(command starship module kubernetes 2>/dev/null | command sed -E $'s/\033\\[[0-9;:]*m//g')
+      if [[ -n $label ]]; then
+        encoded=$(printf '%s' "$$|$label" | command base64 | command tr -d '\r\n')
       fi
     fi
     # Clear on every outer-shell prompt as well, including after `exit`.
@@ -58,6 +58,27 @@ if [[ -n ${KITTY_WINDOW_ID-} ]]; then
   }
   autoload -Uz add-zsh-hook
   add-zsh-hook precmd _terminal_dotfiles_kubie_title
+fi
+
+# Ordinary SSH does not install Kitty integration on the server. Report the
+# remote directory and command when these shared dotfiles are installed there.
+if [[ -n ${SSH_TTY-}${SSH_CONNECTION-} && ${TERM-} == (xterm*|screen*|tmux*) ]]; then
+  _terminal_dotfiles_remote_title() {
+    local location=$PWD host=${HOST%%.*} command_name='' title
+    [[ $location == $HOME ]] && location='~'
+    (( EUID == 0 )) && host="root@$host"
+    if [[ -n ${1-} ]]; then
+      local -a words
+      words=(${(z)1})
+      command_name=${words[1]:t}
+    fi
+    title="$host: $location${command_name:+ · $command_name}"
+    printf '\033]2;%s\007' "${title//[[:cntrl:]]/}"
+    return 0
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _terminal_dotfiles_remote_title
+  add-zsh-hook preexec _terminal_dotfiles_remote_title
 fi
 
 # Use compatible terminfo for every SSH destination.
