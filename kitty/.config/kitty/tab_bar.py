@@ -1,4 +1,4 @@
-"""Local macOS/Linux network history in Kitty's horizontal tab bar.
+"""Shared tab labels and local macOS/Linux network history in Kitty.
 
 The native timer reads kernel byte counters without spawning programs.
 Physical interfaces are counted once, excluding tunnels and bridges.
@@ -7,11 +7,15 @@ Linux network namespaces without hardware use their default interface.
 
 from collections import deque
 import ctypes as c
+import json
 from math import ceil, log10
+import os
 from pathlib import Path
 import re
+import shlex
 import sys
 from time import monotonic
+from urllib.parse import unquote, urlsplit
 
 
 class InterfaceData64(c.Structure):
@@ -233,6 +237,231 @@ class NetworkMonitor:
 
 
 _monitor = None
+_remote_locations = {}
+
+
+def plain_title(title):
+    title = re.sub(r"\x1b\[[0-9;:]*m", "", title)
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", title).strip()
+
+
+def command_name(command):
+    try:
+        words = shlex.split(plain_title(command))
+    except ValueError:
+        words = command.split()
+    # Show the executable, never arguments that may contain credentials.
+    while words and (re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[0]) or words[0] in ("command", "exec")):
+        words.pop(0)
+    return words[0].rsplit("/", 1)[-1] if words else ""
+
+
+def compact_title(title):
+    # Parse only the shell's host: path convention; keep other labels intact.
+    title = plain_title(title)
+    host, separator, detail = title.partition(": ")
+    if separator and re.fullmatch(r"(?:[^\s@:/]+@)?[^\s@:/]+", host):
+        if not host.startswith("root@"):
+            host = host.rsplit("@", 1)[-1]
+        if detail.startswith(("/", "~", "…/")):
+            detail = compact_title(detail)
+        else:
+            detail = detail.split()[0] if detail.split() else ""
+        return f"{host}:{detail}" if detail else host
+    if title in ("~", "~/", "/"):
+        return title.rstrip("/") or "/"
+    if title.startswith(("/", "~/", "…/")):
+        return title.rstrip("/").rsplit("/", 1)[-1]
+    return title or "shell"
+
+
+def shell_state(window):
+    if window.child_is_remote:
+        return None
+    value = window.user_vars.get("terminal_dotfiles_state", "")
+    if not value:
+        return None
+    try:
+        state = json.loads(value)
+        if not isinstance(state, dict) or state.get("v") != 1:
+            return None
+        owner = state.get("pid")
+        if type(owner) is not int or owner < 1 or state.get("phase") not in ("prompt", "running"):
+            return None
+        if not all(isinstance(state.get(field), str) for field in ("cwd", "context", "command")):
+            return None
+        # Kubie shells and their supervisor need not share a foreground group.
+        # Trust the publishing shell in this PTY session, not another process's
+        # environment. getsid also rejects metadata from an exited shell.
+        root_pid = window.child.pid
+        if os.getsid(owner) != os.getsid(root_pid):
+            return None
+    except (OSError, ValueError, TypeError, OverflowError):
+        return None
+    return state
+
+
+def kubie_label(window):
+    state = shell_state(window)
+    return plain_title(state["context"]) if state else ""
+
+
+def local_program(window):
+    argv = window.child.foreground_cmdline
+    executable = Path(argv[0]).name.lstrip("-") if argv else ""
+    return "" if executable in ("bash", "zsh", "fish", "sh", "dash", "login", "kitten", "kitty", "kubie", "starship") else executable
+
+
+def remote_title(window, title):
+    key = window.id
+    host, directory = _remote_locations.get(key, ("", ""))
+    prefix, separator, detail = title.partition(": ")
+    if separator and re.fullmatch(r"(?:[^\s@:/]+@)?[^\s@:/]+", prefix):
+        new_host = prefix if prefix.startswith("root@") else prefix.rsplit("@", 1)[-1]
+        if new_host != host:
+            directory = ""
+        host = new_host
+    else:
+        detail = title
+    location, running, command = detail.partition(" · ")
+    if location.startswith(("/", "~", "…/")):
+        directory = compact_title(location)
+        command = command_name(command) if running else ""
+    else:
+        command = command_name(detail)
+    # OSC 7 is also available when a TUI replaces the shell's window title.
+    try:
+        reported = urlsplit(window.screen.last_reported_cwd or "")
+    except ValueError:
+        reported = urlsplit("")
+    if not directory and reported.scheme == "file" and reported.hostname and host and reported.hostname.split(".")[0] == host.rsplit("@", 1)[-1].split(".")[0]:
+        directory = compact_title(unquote(reported.path))
+    if len(_remote_locations) > 256:
+        _remote_locations.pop(next(iter(_remote_locations)))
+    _remote_locations[key] = host, directory
+    identity = f"{host}:{directory}" if host and directory else host or directory
+    if not identity:
+        return compact_title(title)
+    return f"{identity} {command}" if command else identity
+
+
+def sgr_rgb(text, channel):
+    color = None
+    for parameters in re.findall(r"\x1b\[([0-9;:]*)m", text):
+        values = [int(value) for value in parameters.replace(":", ";").split(";") if value]
+        for i in range(len(values) - 4):
+            if values[i:i + 2] == [channel, 2] and all(0 <= value <= 255 for value in values[i + 2:i + 5]):
+                color = tuple(values[i + 2:i + 5])
+    return color
+
+
+def contrast(first, second):
+    def luminance(rgb):
+        values = [value / 255 for value in rgb]
+        values = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4 for value in values]
+        return sum(value * weight for value, weight in zip(values, (0.2126, 0.7152, 0.0722)))
+    low, high = sorted((luminance(first), luminance(second)))
+    return (high + 0.05) / (low + 0.05)
+
+
+def accent_kubernetes(title, data, encoded_state):
+    formatter = data.get("fmt")
+    if not formatter or "☸" not in title:
+        return title
+    try:
+        raw_context = json.loads(encoded_state)["context"]
+        color = sgr_rgb(raw_context.split("☸", 1)[0], 38)
+    except (ValueError, TypeError, KeyError):
+        return title
+    if color:
+        background = sgr_rgb(formatter.bg.tab, 48)
+        if background and contrast(color, background) < 3:
+            # Retain the hue while making the icon readable on an active tab.
+            target = 0 if sum(background) > 384 else 255
+            for amount in (0.2, 0.4, 0.6, 0.8, 1.0):
+                adjusted = tuple(round(value * (1 - amount) + target * amount) for value in color)
+                if contrast(adjusted, background) >= 3:
+                    color = adjusted
+                    break
+        icon = f"\x1b[38;2;{color[0]};{color[1]};{color[2]}m☸{formatter.fg.tab}"
+        return title.replace("☸", icon, 1)
+    return title
+
+
+def draw_title(data):
+    from kitty.fast_data_types import get_boss
+    tab = get_boss().tab_for_id(data["tab_id"])
+    # An explicitly assigned name always wins, including names with ': '.
+    if tab and tab.name:
+        return plain_title(tab.name)
+    window = tab.active_window if tab else None
+    title = plain_title(data["title"])
+    if window is None:
+        return compact_title(title)
+    key = (title, window.at_prompt, getattr(window.child, "pid_for_cwd", None),
+           window.user_vars.get("terminal_dotfiles_state", ""))
+    now = monotonic()
+    cached = getattr(window, "_dotfiles_title_cache", None)
+    # Kitty calls this for every tab during both layout and painting. Avoid
+    # repeating process/cwd lookups within one frame; expire state promptly.
+    if cached and cached[0] == key and now - cached[1] < 0.1:
+        return accent_kubernetes(cached[2], data, key[-1])
+    result = window_title(window, title)
+    window._dotfiles_title_cache = key, now, result
+    return accent_kubernetes(result, data, key[-1])
+
+
+def window_title(window, title):
+    if window.child_is_remote:
+        return remote_title(window, title)
+    _remote_locations.pop(window.id, None)
+    state = shell_state(window)
+    cwd = state["cwd"] if state else window.get_cwd_of_child() or ""
+    directory = "~" if cwd == str(Path.home()) else compact_title(cwd) if cwd else ""
+    if state:
+        context = plain_title(state["context"])
+        command = command_name(state["command"]) if state["phase"] == "running" else ""
+        # Bash PS0 can have an older history entry when HISTIGNORE/ignorespace
+        # excludes a command. Prefer a real foreground application once started.
+        if state["phase"] == "running" and not window.at_prompt:
+            command = local_program(window) or command
+        # Bash 3.2 has no PS0 hook. Keep a real foreground application visible,
+        # while a waiting Kubie supervisor is never mistaken for that app.
+        if not command and not window.at_prompt:
+            command = local_program(window)
+        return " ".join(part for part in (context, directory, command) if part)
+    command = ""
+    # OSC 2 can arrive just before OSC 133 marks command execution. A non-path
+    # title already names that command, even while at_prompt still says True.
+    if not window.at_prompt or not title.startswith(("/", "~", "…/")):
+        executable = local_program(window)
+        if executable:
+            command = executable
+        elif not title.startswith(("/", "~", "…/")):
+            command = command_name(title)
+            if command in ("kubie", "starship"):
+                command = ""
+    identity = directory
+    if not identity:
+        return compact_title(title)
+    return f"{identity} {command}" if command else identity
+
+
+def fit_title(title, width, restore_fg=""):
+    from kitty.fast_data_types import wcswidth
+    from kitty.tab_bar import truncate_line
+    if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) <= width:
+        return title
+    identity, separator, command = title.rpartition(" ")
+    if separator and width >= 12:
+        command_width = min(wcswidth(command), width // 2)
+        if wcswidth(command) > command_width:
+            command = truncate_line(command, command_width)
+        identity_width = width - command_width - 1
+        if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", identity)) > identity_width:
+            identity = truncate_line(identity, identity_width)
+        return identity + restore_fg + " " + command
+    return truncate_line(title, width)
 
 
 def get_monitor():
@@ -248,35 +477,41 @@ def get_monitor():
     return _monitor
 
 
-def format_panel(snapshot, columns, now, platform):
+def format_panel(snapshot, available, now, platform):
     samples, rx, tx, status = snapshot
-    compact = columns < 120
-    count = 6 if compact else 8
-    graphs, _ = chart_data(samples, now, count)
     label = " Mac " if platform == "darwin" else " Linux "
+    # Both modes keep rates and units. Tabs own their width budget first.
+    full_width = len(label) + 2 * (1 + 8 + 9 + 1)
+    rates_width = len(label) + 2 * (1 + 8 + 1)
+    if available < rates_width:
+        return [], 0
+    full = available >= full_width
+    count = 8 if full else 0
+    graphs = chart_data(samples, now, count)[0] if count else ("", "")
     segments = [(0xa2adbd, label)]
     if status == "unavailable":
         # An unavailable measurement is different from a measured zero.
-        segments += [(0xbf616a, "unavailable " if compact else "network unavailable ")]
+        segments += [(0xbf616a, "network unavailable ")]
     else:
         for color, arrow, graph, rate in ((0xa3be8c, "↓", graphs[0], rx), (0x88c0d0, "↑", graphs[1], tx)):
-            value = "" if compact else f" {compact_rate(rate) if status == 'ready' else '--':>5}b/s"
+            value = f"{' ' if full else ''}{compact_rate(rate) if status == 'ready' else '--':>5}b/s"
             segments.append((color, f"{arrow}{graph}{value} "))
     # Reserve the same width through warming, zero traffic and errors.
-    width = len(label) + 2 * (1 + count + (0 if compact else 9) + 1)
+    width = full_width if full else rates_width
     length = sum(len(text) for _, text in segments)
     if length < width:
         segments.append((0xa2adbd, " " * (width - length)))
     return segments, width
 
 
-def panel_segments(columns):
-    return format_panel(get_monitor().snapshot(), columns, monotonic(), sys.platform)
+def panel_segments(available):
+    return format_panel(get_monitor().snapshot(), available, monotonic(), sys.platform)
 
 
-def allocate_widths(desired, active, available, priorities=()):
+def allocate_widths(desired, available, priorities=()):
     widths = [0] * len(desired)
-    # Distribute fairly, then spend spare room on the active tab first.
+    # Focus must not change hit targets or move the neighboring tabs.
+    available = max(0, available)
     minimum = min(8, available // max(1, len(desired)))
     for i, want in enumerate(desired):
         widths[i] = min(want, minimum)
@@ -285,9 +520,6 @@ def allocate_widths(desired, active, available, priorities=()):
         extra = min(remaining, max(0, desired[i] - widths[i]))
         widths[i] += extra
         remaining -= extra
-    extra = min(remaining, max(0, min(desired[active], 26) - widths[active]))
-    widths[active] += extra
-    remaining -= extra
     while remaining > 0:
         changed = False
         for i, want in enumerate(desired):
@@ -302,27 +534,23 @@ def allocate_widths(desired, active, available, priorities=()):
 
 def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data):
     from kitty.fast_data_types import get_boss, wcswidth
-    from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade, truncate_line
+    from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade
     from kitty.utils import color_as_int
-    if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom") or screen.columns < 60:
+    if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom"):
         return draw_tab_with_fade(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data)
 
     manager = get_boss().os_window_map.get(draw_data.os_window_id)
     data = manager.tab_bar.last_laid_out_tabs if manager else (tab,)
-    segments, panel_width = panel_segments(screen.columns)
-    titles = []
-    for i, item in enumerate(data):
-        if not item.is_active and ": " in item.title:
-            host = item.title.split(": ", 1)[0]
-            if not host.startswith("root@"):
-                host = host.rsplit("@", 1)[-1]
-            titles.append(apply_title_template(draw_data, item._replace(title=host), i + 1).split("\n", 1)[0].rstrip())
-        else:
-            titles.append(apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip())
-    active = next((i for i, item in enumerate(data) if item.is_active), 0)
-    desired = [min(28, wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) + 1) for title in titles]
+    titles = [apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip() for i, item in enumerate(data)]
+    # SGR prefixes and transient attention icons must not shift tab boundaries.
+    stable_titles = [apply_title_template(draw_data, item._replace(is_active=False, needs_attention=False,
+                     has_activity_since_last_focus=False), i + 1).split("\n", 1)[0].rstrip()
+                     for i, item in enumerate(data)]
+    desired = [min(draw_data.max_tab_title_length or 28, wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) + 1)
+               for title in stable_titles]
+    segments, panel_width = panel_segments(max(0, screen.columns - sum(desired) - 1))
     priorities = [i for i, item in enumerate(data) if item.title.startswith("root@")]
-    widths = allocate_widths(desired, active, max(0, screen.columns - panel_width - 1), priorities)
+    widths = allocate_widths(desired, screen.columns - panel_width - 1, priorities)
     width = widths[index - 1]
     if extra_data.for_layout:
         screen.cursor.x = width
@@ -336,7 +564,9 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
     if width > 1:
         title = titles[index - 1]
         if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) > width - 1:
-            title = truncate_line(title, width - 1)
+            fg = color_as_int(draw_data.tab_fg(tab))
+            restore_fg = f"\x1b[38;2;{fg >> 16};{(fg >> 8) & 255};{fg & 255}m"
+            title = fit_title(title, width - 1, restore_fg)
         draw_attributed_string(title, screen)
     screen.cursor.x = start + width
     end = max(start, screen.cursor.x - 1)
