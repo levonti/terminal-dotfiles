@@ -46,32 +46,29 @@ deleted = '-$count '
 disabled = false
 # Display only the context explicitly selected in this Kubie session.
 detect_env_vars = ['KUBIE_ACTIVE']
-format = '[\[☸ $symbol$context(::$namespace)\]]($style) '
-symbol = '? ENV '
+format = '\[[$symbol]($style) $context(::$namespace)\] '
+symbol = '☸'
 style = 'bold #b48ead'
 
 [[kubernetes.contexts]]
 context_pattern = 'dev[/:](?:[^/]+/)*([^/]+)'
 context_alias = 'DEV $1'
-symbol = ''
 style = 'bold #a3be8c'
 
 [[kubernetes.contexts]]
 context_pattern = 'test[/:](?:[^/]+/)*([^/]+)'
 context_alias = 'TEST $1'
-symbol = ''
 style = 'bold #ebcb8b'
 
 [[kubernetes.contexts]]
 context_pattern = 'prod[/:](?:[^/]+/)*([^/]+)'
-context_alias = 'PROD $1'
-symbol = '! '
-style = 'bold fg:#ffffff bg:#bf616a'
+context_alias = '$1'
+style = 'bold #bf616a'
 
 [[kubernetes.contexts]]
 # Keep unknown environments conspicuous without displaying path-like prefixes.
 context_pattern = '(?:[^/]+/)*([^/]+)'
-context_alias = '$1'
+context_alias = '? ENV $1'
 
 [status]
 disabled = false

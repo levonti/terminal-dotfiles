@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 from pathlib import Path
 import re
@@ -21,7 +22,7 @@ import tab_bar as tabs
 
 def hook_block(shell):
     source = (ROOT / ("zsh/.zshrc" if shell == "zsh" else "bash/.bashrc")).read_text()
-    block = source[source.index("# Publish the same Kubernetes"):]
+    block = source[source.index("# Publish "):]
     return block[:block.index("# Use compatible terminfo")] if shell == "zsh" else block
 
 
@@ -44,11 +45,13 @@ class TitleTests(unittest.TestCase):
                 self.assertEqual(tabs.compact_title(source), expected)
 
     def render(self, title, name="", context="", active=True, remote=False,
-               cwd="/work/project", at_prompt=True, argv=None, owner=None, kubie=True, reported=""):
-        value = f"{os.getpid() if owner is None else owner}|{context}" if context else ""
-        window = SimpleNamespace(id=1, user_vars={"terminal_dotfiles_kubie": value},
+               cwd="/work/project", at_prompt=True, argv=None, owner=None, kubie=True, reported="", metadata=True):
+        state = dict(v=1, pid=os.getpid() if owner is None else owner,
+                     phase="prompt" if at_prompt else "running", cwd=cwd,
+                     context=context if kubie else "", command=(argv or [title])[0] if not at_prompt else "")
+        window = SimpleNamespace(id=1, user_vars={"terminal_dotfiles_state": json.dumps(state)} if metadata else {},
             child_is_remote=remote, get_cwd_of_child=lambda: cwd, at_prompt=at_prompt,
-            child=SimpleNamespace(foreground_environ={"KUBIE_ACTIVE": "1"} if kubie else {},
+            child=SimpleNamespace(pid=os.getpid(), foreground_environ={},
                                   foreground_cmdline=argv or ["zsh"]),
             screen=SimpleNamespace(last_reported_cwd=reported), last_cmd_cmdline=title)
         tab = SimpleNamespace(name=name, active_window=window)
@@ -67,13 +70,13 @@ class TitleTests(unittest.TestCase):
 
     def test_context_survives_running_commands_and_clears_after_exit(self):
         self.assertEqual(self.render("htop", context="[☸ DEV example::app]", at_prompt=False, argv=["htop"]),
-                         "[☸ DEV example::app] project · htop")
+                         "[☸ DEV example::app] project htop")
         # Simulate returning to a parent which never loaded the new hooks.
         self.assertEqual(self.render("~", context="[☸ DEV example::app]", kubie=False), "project")
 
     def test_exited_metadata_owner_is_rejected_even_in_another_kubie_shell(self):
-        with patch.object(tabs.os, "kill", side_effect=ProcessLookupError):
-            self.assertEqual(self.render("~", context="[☸ PROD example::app]"), "project")
+        with patch.object(tabs.os, "getsid", side_effect=ProcessLookupError):
+            self.assertEqual(self.render("~", context="[☸ example::app]"), "project")
 
     def test_unscoped_legacy_metadata_is_rejected(self):
         window = SimpleNamespace(child_is_remote=False, child=SimpleNamespace(foreground_environ={"KUBIE_ACTIVE": "1"}),
@@ -81,43 +84,73 @@ class TitleTests(unittest.TestCase):
         self.assertEqual(tabs.kubie_label(window), "")
 
     def test_local_commands_keep_directory_without_exposing_arguments(self):
-        self.assertEqual(self.render("htop --sort PERCENT_CPU", at_prompt=False, argv=["/bin/htop"]), "project · htop")
-        self.assertEqual(self.render("curl secret-argument", at_prompt=False, argv=["curl", "secret-argument"]), "project · curl")
+        self.assertEqual(self.render("htop --sort PERCENT_CPU", at_prompt=False, argv=["/bin/htop"]), "project htop")
+        self.assertEqual(self.render("curl secret-argument", at_prompt=False, argv=["curl", "secret-argument"]), "project curl")
         self.assertEqual(self.render("~", cwd=str(Path.home())), "~")
 
     def test_preexec_title_before_command_start_marker_already_shows_command(self):
-        self.assertEqual(self.render("htop", at_prompt=True, argv=["zsh"]), "project · htop")
+        self.assertEqual(self.render("htop", at_prompt=True, argv=["zsh"], metadata=False), "project htop")
+
+    def test_kubie_prompt_ignores_wrapper_and_foreground_environment(self):
+        self.assertEqual(self.render("kubie ctx", context="[☸ example::app]", argv=["kubie"]),
+                         "[☸ example::app] project")
+
+    def test_actual_program_overrides_stale_bash_history_hint(self):
+        state = dict(v=1, pid=os.getpid(), phase="running", cwd="/work/project", context="", command="kubie")
+        window = SimpleNamespace(id=1, child_is_remote=False, at_prompt=False,
+            user_vars={"terminal_dotfiles_state": json.dumps(state)},
+            child=SimpleNamespace(pid=os.getpid(), foreground_cmdline=["/bin/htop"]))
+        self.assertEqual(tabs.window_title(window, "kubie ctx"), "project htop")
+
+    def test_different_terminal_session_is_rejected(self):
+        with patch.object(tabs.os, "getsid", side_effect=[10, 20]):
+            self.assertEqual(self.render("~", context="[☸ other]"), "project")
+
+    def test_only_kubernetes_icon_is_colored_and_tab_colors_are_restored(self):
+        title = "[☸ example::app] project"
+        for background in ((136, 192, 208), (37, 44, 58)):
+            for color in ((191, 97, 106), (163, 190, 140), (235, 203, 139), (180, 142, 173)):
+                formatter = SimpleNamespace(fg=SimpleNamespace(tab="\x1b[38;2;23;27;36m"),
+                    bg=SimpleNamespace(tab=f"\x1b[48;2;{background[0]};{background[1]};{background[2]}m"))
+                raw = f"[\x1b[1;38;2;{color[0]};{color[1]};{color[2]}m☸\x1b[0m example::app]"
+                styled = tabs.accent_kubernetes(title, {"fmt": formatter}, json.dumps({"context": raw}))
+                self.assertEqual(tabs.plain_title(styled), title)
+                self.assertIn("☸" + formatter.fg.tab + " example::app", styled)
+                self.assertNotIn("48;", styled)
+                icon_color = tabs.sgr_rgb(styled.split("☸", 1)[0], 38)
+                self.assertGreaterEqual(tabs.contrast(icon_color, background), 3)
 
     def test_return_to_parent_invalidates_same_frame_cache(self):
-        child = SimpleNamespace(pid_for_cwd=101, foreground_cmdline=["zsh"], foreground_environ={"KUBIE_ACTIVE": "1"})
+        child = SimpleNamespace(pid=os.getpid(), pid_for_cwd=101, foreground_cmdline=["zsh"])
         window = SimpleNamespace(id=1, child=child, child_is_remote=False, at_prompt=True,
-            user_vars={"terminal_dotfiles_kubie": f"{os.getpid()}|[☸ DEV example::app]"},
+            user_vars={"terminal_dotfiles_state": json.dumps(dict(v=1, pid=os.getpid(), phase="prompt",
+                       cwd="/work/project", context="[☸ DEV example::app]", command=""))},
             get_cwd_of_child=lambda: "/work/project")
         tab = SimpleNamespace(name="", active_window=window)
         fast = ModuleType("kitty.fast_data_types")
         fast.get_boss = lambda: SimpleNamespace(tab_for_id=lambda _: tab)
-        with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast}), patch.object(tabs, "monotonic", return_value=10):
+        with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast}), patch.object(tabs, "monotonic", return_value=10), patch.object(tabs.os, "getsid", side_effect=[1, 1, ProcessLookupError]):
             self.assertEqual(tabs.draw_title({"tab_id": 1, "title": "~"}), "[☸ DEV example::app] project")
-            child.pid_for_cwd, child.foreground_environ = 100, {}
+            child.pid_for_cwd = 100
             self.assertEqual(tabs.draw_title({"tab_id": 1, "title": "~"}), "project")
 
     def test_remote_commands_keep_last_remote_directory_and_ignore_local_kubie(self):
         self.assertEqual(self.render("user@host: /srv/project", remote=True), "host:project")
-        self.assertEqual(self.render("user@host: htop -d 5", remote=True, context="[☸ DEV local::app]"), "host:project · htop")
-        self.assertEqual(self.render("htop", remote=True), "host:project · htop")
+        self.assertEqual(self.render("user@host: htop -d 5", remote=True, context="[☸ DEV local::app]"), "host:project htop")
+        self.assertEqual(self.render("htop", remote=True), "host:project htop")
         self.assertEqual(self.render("user@host: /srv/project", remote=True), "host:project")
 
     def test_remote_reported_path_and_change_of_host(self):
-        self.assertEqual(self.render("root@host: htop", remote=True, reported="file://host/srv/project"), "root@host:project · htop")
-        self.assertEqual(self.render("user@other: htop", remote=True), "other · htop")
+        self.assertEqual(self.render("root@host: htop", remote=True, reported="file://host/srv/project"), "root@host:project htop")
+        self.assertEqual(self.render("user@other: htop", remote=True), "other htop")
 
     def test_remote_combined_title(self):
-        self.assertEqual(self.render("user@host: /srv/project · htop", remote=True), "host:project · htop")
+        self.assertEqual(self.render("user@host: /srv/project · htop", remote=True), "host:project htop")
 
     def test_new_local_session_discards_remote_location(self):
         self.render("user@host: /srv/old", remote=True)
         self.render("~", kubie=False)
-        self.assertEqual(self.render("user@host: htop", remote=True), "host · htop")
+        self.assertEqual(self.render("user@host: htop", remote=True), "host htop")
 
     def test_long_titles_keep_the_running_command_visible(self):
         fast = ModuleType("kitty.fast_data_types")
@@ -126,10 +159,10 @@ class TitleTests(unittest.TestCase):
         api.truncate_line = lambda text, width: text[:max(0, width - 1)] + "…"
         with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast, "kitty.tab_bar": api}):
             for width in (12, 20, 28, 40):
-                result = tabs.fit_title(" 1 host:very-long-project-name-for-testing · htop", width)
+                result = tabs.fit_title(" 1 host:very-long-project-name-for-testing htop", width)
                 self.assertLessEqual(len(result), width)
                 self.assertTrue(result.startswith(" 1 "))
-                self.assertTrue(result.endswith(" · htop"))
+                self.assertTrue(result.endswith(" htop"))
 
 
 class LayoutTests(unittest.TestCase):
@@ -166,7 +199,7 @@ class LayoutTests(unittest.TestCase):
 
 
 class ShellMetadataTests(unittest.TestCase):
-    def run_hook(self, shell, active="1", failing=False, array=False, context=None):
+    def run_hook(self, shell, active="1", failing=False, array=False, context=None, quoted_directory=False):
         # Exercise the complete registration block without loading private rc files.
         block = hook_block(shell)
         with TemporaryDirectory() as directory:
@@ -184,6 +217,9 @@ class ShellMetadataTests(unittest.TestCase):
             env = {**os.environ, "KITTY_WINDOW_ID": "42", "KUBIE_ACTIVE": active,
                    "PATH": f"{directory}:/usr/bin:/bin", "SSH_TTY": "", "SSH_CONNECTION": "", "TERM": "dumb",
                    "STARSHIP_CONFIG": str(ROOT / "starship/.config/starship.toml"), "KUBECONFIG": str(config)}
+            cwd = Path(directory) / 'quoted"path\\name' if quoted_directory else ROOT
+            if quoted_directory:
+                cwd.mkdir()
             prefix = 'PROMPT_COMMAND=("printf preserved")\n' if array else 'PROMPT_COMMAND="printf preserved"\n'
             script = prefix + block + "\n" + block + "\n_terminal_dotfiles_kubie_title\n"
             if shell == "zsh":
@@ -192,38 +228,58 @@ class ShellMetadataTests(unittest.TestCase):
                 script += 'printf "%s\\n" "${PROMPT_COMMAND[*]}"\n'
             result = subprocess.run([shell, "-fc" if shell == "zsh" else "--noprofile", *(
                 [] if shell == "zsh" else ["--norc", "-c"]), script],
-                env=env, capture_output=True, text=True)
+                env=env, cwd=cwd, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             return result.stdout
 
     def test_both_shells_publish_context_and_register_once(self):
         for shell in SHELLS:
             output = self.run_hook(shell)
-            value = re.search(r"SetUserVar=terminal_dotfiles_kubie=([^\a]+)\a", output)[1]
-            owner, label = base64.b64decode(value).decode().split("|", 1)
-            self.assertTrue(owner.isdecimal())
-            self.assertEqual(label, "[☸ DEV example::app] ")
+            value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
+            state = json.loads(base64.b64decode(value))
+            self.assertGreater(state["pid"], 0)
+            self.assertEqual(tabs.plain_title(state["context"]), "[☸ DEV example::app]")
+            self.assertEqual(state["phase"], "prompt")
             self.assertEqual(output.count("_terminal_dotfiles_kubie_title"), 1)
 
     @unittest.skipUnless(shutil.which("starship"), "Starship is not installed")
     def test_actual_prompt_module_format_for_all_environment_aliases(self):
         for context, label in (("dev:example", "DEV example"), ("test:example", "TEST example"),
-                               ("prod:example", "! PROD example"), ("other/cluster", "? ENV cluster"),
+                               ("prod:example", "example"), ("other/cluster", "? ENV cluster"),
                                ("dev/region/example", "DEV example")):
             for shell in SHELLS:
                 output = self.run_hook(shell, context=context)
-                value = re.search(r"SetUserVar=terminal_dotfiles_kubie=([^\a]+)\a", output)[1]
-                self.assertEqual(base64.b64decode(value).decode().split("|", 1)[1].strip(), f"[☸ {label}::app]")
+                value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
+                raw = json.loads(base64.b64decode(value))["context"]
+                self.assertEqual(tabs.plain_title(raw), f"[☸ {label}::app]")
+                self.assertRegex(raw, r"\x1b\[[0-9;]*m☸\x1b\[0m ")
 
     def test_outer_shell_and_failed_reads_clear_stale_context(self):
         for shell in SHELLS:
             for options in ({"active": ""}, {"failing": True}):
-                self.assertIn("SetUserVar=terminal_dotfiles_kubie=\a", self.run_hook(shell, **options))
+                output = self.run_hook(shell, **options)
+                value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
+                self.assertEqual(json.loads(base64.b64decode(value))["context"], "")
 
     def test_bash_preserves_scalar_and_array_prompt_commands(self):
         for shell in BASH_SHELLS:
             for array in (False, True):
                 self.assertIn("printf preserved", self.run_hook(shell, array=array))
+
+    def test_snapshot_escapes_directory_quotes_and_backslashes(self):
+        for shell in SHELLS:
+            output = self.run_hook(shell, quoted_directory=True)
+            value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
+            self.assertTrue(json.loads(base64.b64decode(value))["cwd"].endswith('quoted"path\\name'))
+
+    def test_protocol_is_not_registered_in_remote_shells(self):
+        for shell in SHELLS:
+            probe = '(( $+functions[_terminal_dotfiles_publish_state] ))' if shell == "zsh" else 'declare -F _terminal_dotfiles_publish_state >/dev/null'
+            script = hook_block(shell) + f'\nif {probe}; then printf installed; else printf absent; fi\n'
+            env = {**os.environ, "KITTY_WINDOW_ID": "42", "SSH_CONNECTION": "fixture", "PATH": "/usr/bin:/bin"}
+            args = [shell, "-fc", script] if shell == "zsh" else [shell, "--noprofile", "--norc", "-c", script]
+            result = subprocess.run(args, env=env, text=True, capture_output=True, check=True)
+            self.assertEqual(result.stdout, "absent")
 
 
 class MetadataLifecycleTests(unittest.TestCase):
@@ -244,12 +300,12 @@ class MetadataLifecycleTests(unittest.TestCase):
                     while b"\a" not in output and monotonic() < deadline:
                         if select.select([proc.stdout], [], [], 0.1)[0]:
                             output += os.read(proc.stdout.fileno(), 4096)
-                    value = re.search(rb"SetUserVar=terminal_dotfiles_kubie=([^\a]+)\a", output)
+                    value = re.search(rb"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)
                     self.assertIsNotNone(value)
                     decoded = base64.b64decode(value[1]).decode()
                     window = SimpleNamespace(child_is_remote=False,
-                        child=SimpleNamespace(foreground_environ={"KUBIE_ACTIVE": "1"}),
-                        user_vars={"terminal_dotfiles_kubie": decoded})
+                        child=SimpleNamespace(pid=proc.pid),
+                        user_vars={"terminal_dotfiles_state": decoded})
                     self.assertEqual(tabs.kubie_label(window), "[☸ DEV example::app]")
                     proc.stdin.close()
                     proc.wait(timeout=3)

@@ -41,23 +41,43 @@ if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 fi
 
-# Publish the same Kubernetes text as the prompt, scoped to this shell PID.
-# Starship reads the local kubeconfig; no Kubernetes API calls are needed.
-if [[ -n ${KITTY_WINDOW_ID-} ]]; then
+# Publish a complete local shell snapshot; nested Kubie shells have no native
+# Kitty prompt/command hooks. Never install this protocol on remote SSH shells.
+if [[ -n ${KITTY_WINDOW_ID-} && -z ${SSH_TTY-}${SSH_CONNECTION-} ]]; then
+  _terminal_dotfiles_publish_state() {
+    local phase=$1 program=${2-} directory=$PWD context=${_terminal_dotfiles_kube_label-} encoded
+    directory=${directory//[[:cntrl:]]/}
+    program=${program//[[:cntrl:]]/}
+    directory=${directory//\\/\\\\}; directory=${directory//\"/\\\"}
+    context=${context//\\/\\\\}; context=${context//\"/\\\"}
+    context=${context//$'\033'/\\u001b}; context=${context//[[:cntrl:]]/}
+    program=${program//\\/\\\\}; program=${program//\"/\\\"}
+    encoded=$(printf '{"v":1,"pid":%s,"phase":"%s","cwd":"%s","context":"%s","command":"%s"}' \
+      "$$" "$phase" "$directory" "$context" "$program" | command base64 | command tr -d '\r\n')
+    printf '\033]1337;SetUserVar=terminal_dotfiles_state=%s\007' "$encoded"
+  }
   _terminal_dotfiles_kubie_title() {
-    local label encoded=
+    typeset -g _terminal_dotfiles_kube_label=''
     if [[ -n ${KUBIE_ACTIVE-} ]] && (( $+commands[starship] )); then
-      label=$(command starship module kubernetes 2>/dev/null | command sed -E $'s/\033\\[[0-9;:]*m//g')
-      if [[ -n $label ]]; then
-        encoded=$(printf '%s' "$$|$label" | command base64 | command tr -d '\r\n')
-      fi
+      _terminal_dotfiles_kube_label=$(command starship module kubernetes 2>/dev/null)
     fi
-    # Clear on every outer-shell prompt as well, including after `exit`.
-    printf '\033]1337;SetUserVar=terminal_dotfiles_kubie=%s\007' "$encoded"
+    _terminal_dotfiles_publish_state prompt
+    return 0
+  }
+  _terminal_dotfiles_tab_command() {
+    local -a words
+    local program
+    words=(${(z)1})
+    while (( $#words )) && [[ ${words[1]} =~ '^[A-Za-z_][A-Za-z_0-9]*=' || ${words[1]} == (command|exec) ]]; do
+      shift words
+    done
+    program=${(Q)words[1]}
+    _terminal_dotfiles_publish_state running "${program:t}"
     return 0
   }
   autoload -Uz add-zsh-hook
   add-zsh-hook precmd _terminal_dotfiles_kubie_title
+  add-zsh-hook preexec _terminal_dotfiles_tab_command
 fi
 
 # Use compatible terminfo for every SSH destination.

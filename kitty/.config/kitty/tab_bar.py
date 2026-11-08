@@ -7,6 +7,7 @@ Linux network namespaces without hardware use their default interface.
 
 from collections import deque
 import ctypes as c
+import json
 from math import ceil, log10
 import os
 from pathlib import Path
@@ -274,23 +275,41 @@ def compact_title(title):
     return title or "shell"
 
 
-def kubie_label(window):
+def shell_state(window):
     if window.child_is_remote:
-        return ""
-    value = window.user_vars.get("terminal_dotfiles_kubie", "")
+        return None
+    value = window.user_vars.get("terminal_dotfiles_state", "")
     if not value:
-        return ""
-    # Reject metadata left by a nested shell, even if its parent has old hooks.
-    if not window.child.foreground_environ.get("KUBIE_ACTIVE"):
-        return ""
-    owner, separator, label = value.partition("|")
-    if not separator or not owner.isdecimal() or int(owner) < 1:
-        return ""  # Old, unscoped metadata must be refreshed by the shell.
+        return None
     try:
-        os.kill(int(owner), 0)
-    except OSError:
-        return ""
-    return plain_title(label)
+        state = json.loads(value)
+        if not isinstance(state, dict) or state.get("v") != 1:
+            return None
+        owner = state.get("pid")
+        if type(owner) is not int or owner < 1 or state.get("phase") not in ("prompt", "running"):
+            return None
+        if not all(isinstance(state.get(field), str) for field in ("cwd", "context", "command")):
+            return None
+        # Kubie shells and their supervisor need not share a foreground group.
+        # Trust the publishing shell in this PTY session, not another process's
+        # environment. getsid also rejects metadata from an exited shell.
+        root_pid = window.child.pid
+        if os.getsid(owner) != os.getsid(root_pid):
+            return None
+    except (OSError, ValueError, TypeError, OverflowError):
+        return None
+    return state
+
+
+def kubie_label(window):
+    state = shell_state(window)
+    return plain_title(state["context"]) if state else ""
+
+
+def local_program(window):
+    argv = window.child.foreground_cmdline
+    executable = Path(argv[0]).name.lstrip("-") if argv else ""
+    return "" if executable in ("bash", "zsh", "fish", "sh", "dash", "login", "kitten", "kitty", "kubie", "starship") else executable
 
 
 def remote_title(window, title):
@@ -323,7 +342,50 @@ def remote_title(window, title):
     identity = f"{host}:{directory}" if host and directory else host or directory
     if not identity:
         return compact_title(title)
-    return f"{identity} · {command}" if command else identity
+    return f"{identity} {command}" if command else identity
+
+
+def sgr_rgb(text, channel):
+    color = None
+    for parameters in re.findall(r"\x1b\[([0-9;:]*)m", text):
+        values = [int(value) for value in parameters.replace(":", ";").split(";") if value]
+        for i in range(len(values) - 4):
+            if values[i:i + 2] == [channel, 2] and all(0 <= value <= 255 for value in values[i + 2:i + 5]):
+                color = tuple(values[i + 2:i + 5])
+    return color
+
+
+def contrast(first, second):
+    def luminance(rgb):
+        values = [value / 255 for value in rgb]
+        values = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4 for value in values]
+        return sum(value * weight for value, weight in zip(values, (0.2126, 0.7152, 0.0722)))
+    low, high = sorted((luminance(first), luminance(second)))
+    return (high + 0.05) / (low + 0.05)
+
+
+def accent_kubernetes(title, data, encoded_state):
+    formatter = data.get("fmt")
+    if not formatter or "☸" not in title:
+        return title
+    try:
+        raw_context = json.loads(encoded_state)["context"]
+        color = sgr_rgb(raw_context.split("☸", 1)[0], 38)
+    except (ValueError, TypeError, KeyError):
+        return title
+    if color:
+        background = sgr_rgb(formatter.bg.tab, 48)
+        if background and contrast(color, background) < 3:
+            # Retain the hue while making the icon readable on an active tab.
+            target = 0 if sum(background) > 384 else 255
+            for amount in (0.2, 0.4, 0.6, 0.8, 1.0):
+                adjusted = tuple(round(value * (1 - amount) + target * amount) for value in color)
+                if contrast(adjusted, background) >= 3:
+                    color = adjusted
+                    break
+        icon = f"\x1b[38;2;{color[0]};{color[1]};{color[2]}m☸{formatter.fg.tab}"
+        return title.replace("☸", icon, 1)
+    return title
 
 
 def draw_title(data):
@@ -337,55 +399,68 @@ def draw_title(data):
     if window is None:
         return compact_title(title)
     key = (title, window.at_prompt, getattr(window.child, "pid_for_cwd", None),
-           window.user_vars.get("terminal_dotfiles_kubie", ""))
+           window.user_vars.get("terminal_dotfiles_state", ""))
     now = monotonic()
     cached = getattr(window, "_dotfiles_title_cache", None)
     # Kitty calls this for every tab during both layout and painting. Avoid
     # repeating process/cwd lookups within one frame; expire state promptly.
     if cached and cached[0] == key and now - cached[1] < 0.1:
-        return cached[2]
+        return accent_kubernetes(cached[2], data, key[-1])
     result = window_title(window, title)
     window._dotfiles_title_cache = key, now, result
-    return result
+    return accent_kubernetes(result, data, key[-1])
 
 
 def window_title(window, title):
     if window.child_is_remote:
         return remote_title(window, title)
     _remote_locations.pop(window.id, None)
-    cwd = window.get_cwd_of_child() or ""
+    state = shell_state(window)
+    cwd = state["cwd"] if state else window.get_cwd_of_child() or ""
     directory = "~" if cwd == str(Path.home()) else compact_title(cwd) if cwd else ""
+    if state:
+        context = plain_title(state["context"])
+        command = command_name(state["command"]) if state["phase"] == "running" else ""
+        # Bash PS0 can have an older history entry when HISTIGNORE/ignorespace
+        # excludes a command. Prefer a real foreground application once started.
+        if state["phase"] == "running" and not window.at_prompt:
+            command = local_program(window) or command
+        # Bash 3.2 has no PS0 hook. Keep a real foreground application visible,
+        # while a waiting Kubie supervisor is never mistaken for that app.
+        if not command and not window.at_prompt:
+            command = local_program(window)
+        return " ".join(part for part in (context, directory, command) if part)
     command = ""
     # OSC 2 can arrive just before OSC 133 marks command execution. A non-path
     # title already names that command, even while at_prompt still says True.
     if not window.at_prompt or not title.startswith(("/", "~", "…/")):
-        argv = window.child.foreground_cmdline
-        executable = Path(argv[0]).name.lstrip("-") if argv else ""
-        if executable and executable not in ("bash", "zsh", "fish", "sh", "dash", "login", "kitten", "kitty"):
+        executable = local_program(window)
+        if executable:
             command = executable
         elif not title.startswith(("/", "~", "…/")):
             command = command_name(title)
-    context = kubie_label(window)
-    identity = " ".join(part for part in (context, directory) if part)
+            if command in ("kubie", "starship"):
+                command = ""
+    identity = directory
     if not identity:
         return compact_title(title)
-    return f"{identity} · {command}" if command else identity
+    return f"{identity} {command}" if command else identity
 
 
-def fit_title(title, width):
+def fit_title(title, width, restore_fg=""):
     from kitty.fast_data_types import wcswidth
     from kitty.tab_bar import truncate_line
     if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) <= width:
         return title
-    identity, separator, command = title.rpartition(" · ")
+    identity, separator, command = title.rpartition(" ")
     if separator and width >= 12:
         command_width = min(wcswidth(command), width // 2)
         if wcswidth(command) > command_width:
             command = truncate_line(command, command_width)
-        identity_width = width - command_width - 3
+        identity_width = width - command_width - 1
         if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", identity)) > identity_width:
             identity = truncate_line(identity, identity_width)
-        return identity + " · " + command
+        return identity + restore_fg + " " + command
     return truncate_line(title, width)
 
 
@@ -489,7 +564,9 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
     if width > 1:
         title = titles[index - 1]
         if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) > width - 1:
-            title = fit_title(title, width - 1)
+            fg = color_as_int(draw_data.tab_fg(tab))
+            restore_fg = f"\x1b[38;2;{fg >> 16};{(fg >> 8) & 255};{fg & 255}m"
+            title = fit_title(title, width - 1, restore_fg)
         draw_attributed_string(title, screen)
     screen.cursor.x = start + width
     end = max(start, screen.cursor.x - 1)
