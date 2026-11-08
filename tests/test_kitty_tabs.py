@@ -1,10 +1,8 @@
 import base64
 import os
 from pathlib import Path
-import pty
 import re
 import select
-import signal
 import shutil
 import subprocess
 import sys
@@ -226,53 +224,6 @@ class ShellMetadataTests(unittest.TestCase):
         for shell in BASH_SHELLS:
             for array in (False, True):
                 self.assertIn("printf preserved", self.run_hook(shell, array=array))
-
-
-class RemotePtyTests(unittest.TestCase):
-    def test_real_interactive_remote_hooks_report_command_then_restore_directory(self):
-        # A real PTY and interactive shells, with no server or Kitty GUI involved.
-        for shell in SHELLS:
-            with self.subTest(shell=shell), TemporaryDirectory() as directory:
-                rc = Path(directory) / "rc"
-                rc.write_text(hook_block(shell) + '\nPS1="__TABS_READY__ "\n')
-                pid, fd = pty.fork()
-                if pid == 0:
-                    env = {**os.environ, "KITTY_WINDOW_ID": "", "KUBIE_ACTIVE": "", "TERM": "xterm-256color",
-                           "SSH_TTY": "/dev/pts/test", "SSH_CONNECTION": "test", "HISTFILE": "/dev/null",
-                           "HISTCONTROL": "", "HISTIGNORE": ""}
-                    args = [shell, "-f"] if shell == "zsh" else [shell, "--noprofile", "--rcfile", str(rc), "-i"]
-                    os.execvpe(shell, args, env)
-                def read_until_ready():
-                    output = b""
-                    deadline = monotonic() + 5
-                    while monotonic() < deadline:
-                        if select.select([fd], [], [], 0.1)[0]:
-                            output += os.read(fd, 65536)
-                            plain = re.sub(rb"\x1b\[[0-9;?]*[a-zA-Z]", b"", output)
-                            if plain.rstrip().endswith(b"__TABS_READY__"):
-                                return output.decode(errors="replace")
-                    self.fail(f"No interactive prompt from {shell}: {output[-200:]!r}")
-                try:
-                    if shell == "zsh":
-                        os.write(fd, f'source {rc}\n'.encode())
-                    first = read_until_ready()
-                    os.write(fd, b"sleep 0.1\n")
-                    output = read_until_ready()
-                    titles = re.findall(r"\x1b\]2;([^\a]+)\a", output)
-                    self.assertTrue(titles)
-                    self.assertNotIn(" · ", titles[-1])
-                    # PS0 is available starting with Bash 4.4; zsh has preexec.
-                    modern = shell == "zsh" or int(subprocess.check_output([shell, "-c", 'printf "%s" "$BASH_VERSINFO"'])) >= 5
-                    if modern:
-                        self.assertTrue(any(t.endswith(" · sleep") for t in titles), titles)
-                    self.assertTrue(re.findall(r"\x1b\]2;([^\a]+)\a", first))
-                finally:
-                    os.close(fd)
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    os.waitpid(pid, 0)
 
 
 class MetadataLifecycleTests(unittest.TestCase):

@@ -60,27 +60,6 @@ if [[ -n ${KITTY_WINDOW_ID-} ]]; then
   add-zsh-hook precmd _terminal_dotfiles_kubie_title
 fi
 
-# Ordinary SSH does not install Kitty integration on the server. Report the
-# remote directory and command when these shared dotfiles are installed there.
-if [[ -n ${SSH_TTY-}${SSH_CONNECTION-} && ${TERM-} == (xterm*|screen*|tmux*) ]]; then
-  _terminal_dotfiles_remote_title() {
-    local location=$PWD host=${HOST%%.*} command_name='' title
-    [[ $location == $HOME ]] && location='~'
-    (( EUID == 0 )) && host="root@$host"
-    if [[ -n ${1-} ]]; then
-      local -a words
-      words=(${(z)1})
-      command_name=${words[1]:t}
-    fi
-    title="$host: $location${command_name:+ · $command_name}"
-    printf '\033]2;%s\007' "${title//[[:cntrl:]]/}"
-    return 0
-  }
-  autoload -Uz add-zsh-hook
-  add-zsh-hook precmd _terminal_dotfiles_remote_title
-  add-zsh-hook preexec _terminal_dotfiles_remote_title
-fi
-
 # Use compatible terminfo for every SSH destination.
 [[ -r "$HOME/.config/terminal-dotfiles/ssh.zsh" ]] && source "$HOME/.config/terminal-dotfiles/ssh.zsh"
 
