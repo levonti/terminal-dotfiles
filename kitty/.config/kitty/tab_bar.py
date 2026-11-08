@@ -1,4 +1,4 @@
-"""Local macOS/Linux network history in Kitty's horizontal tab bar.
+"""Shared tab labels and local macOS/Linux network history in Kitty.
 
 The native timer reads kernel byte counters without spawning programs.
 Physical interfaces are counted once, excluding tunnels and bridges.
@@ -235,6 +235,36 @@ class NetworkMonitor:
 _monitor = None
 
 
+def compact_title(title):
+    # Parse only the shell's host: path convention; keep other labels intact.
+    title = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", title).strip()
+    host, separator, detail = title.partition(": ")
+    if separator and re.fullmatch(r"(?:[^\s@:/]+@)?[^\s@:/]+", host):
+        if not host.startswith("root@"):
+            host = host.rsplit("@", 1)[-1]
+        if detail.startswith(("/", "~", "…/")):
+            detail = compact_title(detail)
+        else:
+            detail = detail.split()[0] if detail.split() else ""
+        return f"{host}:{detail}" if detail else host
+    if title in ("~", "~/", "/"):
+        return title.rstrip("/") or "/"
+    if title.startswith(("/", "~/", "…/")):
+        return title.rstrip("/").rsplit("/", 1)[-1]
+    return title or "shell"
+
+
+def draw_title(data):
+    from kitty.fast_data_types import get_boss
+    tab = get_boss().tab_for_id(data["tab_id"])
+    # An explicitly assigned name always wins, including names with ': '.
+    if tab and tab.name:
+        return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", tab.name).strip()
+    window = tab.active_window if tab else None
+    context = window.user_vars.get("terminal_dotfiles_kubie", "") if window else ""
+    return compact_title(context or data["title"])
+
+
 def get_monitor():
     global _monitor
     if _monitor is None or _monitor.closed:
@@ -248,35 +278,41 @@ def get_monitor():
     return _monitor
 
 
-def format_panel(snapshot, columns, now, platform):
+def format_panel(snapshot, available, now, platform):
     samples, rx, tx, status = snapshot
-    compact = columns < 120
-    count = 6 if compact else 8
-    graphs, _ = chart_data(samples, now, count)
     label = " Mac " if platform == "darwin" else " Linux "
+    # Both modes keep rates and units. Tabs own their width budget first.
+    full_width = len(label) + 2 * (1 + 8 + 9 + 1)
+    rates_width = len(label) + 2 * (1 + 8 + 1)
+    if available < rates_width:
+        return [], 0
+    full = available >= full_width
+    count = 8 if full else 0
+    graphs = chart_data(samples, now, count)[0] if count else ("", "")
     segments = [(0xa2adbd, label)]
     if status == "unavailable":
         # An unavailable measurement is different from a measured zero.
-        segments += [(0xbf616a, "unavailable " if compact else "network unavailable ")]
+        segments += [(0xbf616a, "network unavailable ")]
     else:
         for color, arrow, graph, rate in ((0xa3be8c, "↓", graphs[0], rx), (0x88c0d0, "↑", graphs[1], tx)):
-            value = "" if compact else f" {compact_rate(rate) if status == 'ready' else '--':>5}b/s"
+            value = f"{' ' if full else ''}{compact_rate(rate) if status == 'ready' else '--':>5}b/s"
             segments.append((color, f"{arrow}{graph}{value} "))
     # Reserve the same width through warming, zero traffic and errors.
-    width = len(label) + 2 * (1 + count + (0 if compact else 9) + 1)
+    width = full_width if full else rates_width
     length = sum(len(text) for _, text in segments)
     if length < width:
         segments.append((0xa2adbd, " " * (width - length)))
     return segments, width
 
 
-def panel_segments(columns):
-    return format_panel(get_monitor().snapshot(), columns, monotonic(), sys.platform)
+def panel_segments(available):
+    return format_panel(get_monitor().snapshot(), available, monotonic(), sys.platform)
 
 
-def allocate_widths(desired, active, available, priorities=()):
+def allocate_widths(desired, available, priorities=()):
     widths = [0] * len(desired)
-    # Distribute fairly, then spend spare room on the active tab first.
+    # Focus must not change hit targets or move the neighboring tabs.
+    available = max(0, available)
     minimum = min(8, available // max(1, len(desired)))
     for i, want in enumerate(desired):
         widths[i] = min(want, minimum)
@@ -285,9 +321,6 @@ def allocate_widths(desired, active, available, priorities=()):
         extra = min(remaining, max(0, desired[i] - widths[i]))
         widths[i] += extra
         remaining -= extra
-    extra = min(remaining, max(0, min(desired[active], 26) - widths[active]))
-    widths[active] += extra
-    remaining -= extra
     while remaining > 0:
         changed = False
         for i, want in enumerate(desired):
@@ -304,25 +337,21 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
     from kitty.fast_data_types import get_boss, wcswidth
     from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade, truncate_line
     from kitty.utils import color_as_int
-    if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom") or screen.columns < 60:
+    if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom"):
         return draw_tab_with_fade(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data)
 
     manager = get_boss().os_window_map.get(draw_data.os_window_id)
     data = manager.tab_bar.last_laid_out_tabs if manager else (tab,)
-    segments, panel_width = panel_segments(screen.columns)
-    titles = []
-    for i, item in enumerate(data):
-        if not item.is_active and ": " in item.title:
-            host = item.title.split(": ", 1)[0]
-            if not host.startswith("root@"):
-                host = host.rsplit("@", 1)[-1]
-            titles.append(apply_title_template(draw_data, item._replace(title=host), i + 1).split("\n", 1)[0].rstrip())
-        else:
-            titles.append(apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip())
-    active = next((i for i, item in enumerate(data) if item.is_active), 0)
-    desired = [min(28, wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) + 1) for title in titles]
+    titles = [apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip() for i, item in enumerate(data)]
+    # SGR prefixes and transient attention icons must not shift tab boundaries.
+    stable_titles = [apply_title_template(draw_data, item._replace(is_active=False, needs_attention=False,
+                     has_activity_since_last_focus=False), i + 1).split("\n", 1)[0].rstrip()
+                     for i, item in enumerate(data)]
+    desired = [min(draw_data.max_tab_title_length or 28, wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) + 1)
+               for title in stable_titles]
+    segments, panel_width = panel_segments(max(0, screen.columns - sum(desired) - 1))
     priorities = [i for i, item in enumerate(data) if item.title.startswith("root@")]
-    widths = allocate_widths(desired, active, max(0, screen.columns - panel_width - 1), priorities)
+    widths = allocate_widths(desired, screen.columns - panel_width - 1, priorities)
     width = widths[index - 1]
     if extra_data.for_layout:
         screen.cursor.x = width

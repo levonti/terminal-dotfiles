@@ -41,6 +41,25 @@ if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 fi
 
+# Publish only the selected Kubie context/namespace to the local Kitty tab.
+# These info commands read local state; no Kubernetes API calls are needed.
+if [[ -n ${KITTY_WINDOW_ID-} ]]; then
+  _terminal_dotfiles_kubie_title() {
+    local context namespace encoded=
+    if [[ -n ${KUBIE_ACTIVE-} ]] && (( $+commands[kubie] )); then
+      if context=$(command kubie info ctx 2>/dev/null) &&
+         namespace=$(command kubie info ns 2>/dev/null) && [[ -n $context ]]; then
+        encoded=$(printf '%s' "k8s: $context${namespace:+/$namespace}" | command base64 | command tr -d '\r\n')
+      fi
+    fi
+    # Clear on every outer-shell prompt as well, including after `exit`.
+    printf '\033]1337;SetUserVar=terminal_dotfiles_kubie=%s\007' "$encoded"
+    return 0
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _terminal_dotfiles_kubie_title
+fi
+
 # Use compatible terminfo for every SSH destination.
 [[ -r "$HOME/.config/terminal-dotfiles/ssh.zsh" ]] && source "$HOME/.config/terminal-dotfiles/ssh.zsh"
 

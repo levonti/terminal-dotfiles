@@ -54,23 +54,24 @@ class NetworkTests(unittest.TestCase):
     def test_panel_color_order_length_units_and_stable_width(self):
         samples = [(59, 1_000_000, 250_000), (60, 0, 0)]
         for platform in ("darwin", "linux"):
-            for columns in (60, 100, 120, 155, 250):
+            for available in (0, 20, 25, 27, 42, 43, 45, 60):
                 widths = []
                 for status in ("ready", "starting", "unavailable"):
-                    segments, width = net.format_panel((samples, 1_000_000, 250_000, status), columns, 60, platform)
+                    segments, width = net.format_panel((samples, 1_000_000, 250_000, status), available, 60, platform)
                     rendered = "".join(text for _, text in segments)
                     self.assertEqual(len(rendered), width)
+                    self.assertLessEqual(width, available)
                     self.assertNotIn("60s", rendered)
                     self.assertNotIn("≤", rendered)
                     widths.append(width)
-                    if status != "unavailable":
+                    if width and status != "unavailable":
                         self.assertEqual(segments[1][0], 0xa3be8c)
                         self.assertEqual(segments[2][0], 0x88c0d0)
-                        count = 6 if columns < 120 else 8
+                        count = 8 if width >= 43 else 0
                         self.assertTrue(segments[1][1].startswith("↓"))
                         self.assertTrue(segments[2][1].startswith("↑"))
                         self.assertEqual(len(segments[1][1][1:1 + count]), count)
-                        self.assertEqual(rendered.count("b/s"), 0 if columns < 120 else 2)
+                        self.assertEqual(rendered.count("b/s"), 2)
                 self.assertEqual(len(set(widths)), 1)
 
     def test_only_physical_interfaces_and_full_64bit_counts(self):
@@ -133,10 +134,11 @@ class NetworkTests(unittest.TestCase):
 
     def test_width_budget_for_eight_tabs_and_narrow_windows(self):
         for available in (0, 10, 36, 92, 160):
-            widths = net.allocate_widths([14, 16, 12, 20, 18, 10, 24, 23], 7, available)
+            widths = net.allocate_widths([14, 16, 12, 20, 18, 10, 24, 23], available)
             self.assertLessEqual(sum(widths), available)
             self.assertTrue(all(width >= 0 for width in widths))
-        self.assertGreaterEqual(net.allocate_widths([20] * 8, 7, 92)[7], 20)
+        widths = net.allocate_widths([20] * 8, 92)
+        self.assertLessEqual(max(widths) - min(widths), 1)
 
 
 if __name__ == "__main__":

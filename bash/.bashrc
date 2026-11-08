@@ -40,3 +40,28 @@ fi
 if command -v starship >/dev/null 2>&1; then
   eval "$(starship init bash)"
 fi
+
+# Publish local Kubie metadata without replacing native shell integration titles.
+if [[ -n ${KITTY_WINDOW_ID-} ]]; then
+  _terminal_dotfiles_kubie_title() {
+    local previous_status=$? context namespace encoded=
+    if [[ -n ${KUBIE_ACTIVE-} ]] && command -v kubie >/dev/null 2>&1; then
+      if context=$(command kubie info ctx 2>/dev/null) &&
+         namespace=$(command kubie info ns 2>/dev/null) && [[ -n $context ]]; then
+        encoded=$(printf '%s' "k8s: $context${namespace:+/$namespace}" | command base64 | command tr -d '\r\n')
+      fi
+    fi
+    # Empty metadata clears a context when returning from a nested Kubie shell.
+    printf '\033]1337;SetUserVar=terminal_dotfiles_kubie=%s\007' "$encoded"
+    return "$previous_status"
+  }
+  if [[ ${PROMPT_COMMAND[*]-} != *'_terminal_dotfiles_kubie_title'* ]]; then
+    if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a '* ]]; then
+      PROMPT_COMMAND+=(_terminal_dotfiles_kubie_title)
+    else
+      # PROMPT_COMMAND is a scalar in this branch (also on macOS Bash 3.2).
+      # shellcheck disable=SC2178,SC2128
+      PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND[0]}; }_terminal_dotfiles_kubie_title"
+    fi
+  fi
+fi
