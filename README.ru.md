@@ -2,7 +2,7 @@
 
 [English](README.md) · **Русский**
 
-[Установка](#установка-с-чистого-устройства) · [Миграция Ubuntu](#миграция-на-настроенной-ubuntu-2404) · [Локальные переопределения](#локальные-переопределения)
+[Установка](#установка-с-чистого-устройства) · [Миграция Ubuntu](#миграция-на-настроенной-ubuntu-2404) · [Сетевая панель Kitty](#сетевая-панель-kitty) · [Локальные переопределения](#локальные-переопределения)
 
 Общая конфигурация Kitty, zsh, Bash, Starship и zoxide для macOS, Ubuntu 24.04 GNOME, Ubuntu 24.04 KDE Plasma и Debian 13 KDE Plasma. Цель — одинаковые prompt, цвета, шрифт и сочетания клавиш внутри терминала на разных устройствах.
 
@@ -82,7 +82,35 @@ sh scripts/install.sh --migrate
 
 Плоская панель с зазорами, контрастной активной вкладкой, номерами и компактными названиями. `Command/Super+1…9` переключает вкладки по номеру, `Command/Super+P` открывает список, `Command/Super+Shift+T` задаёт имя сессии. Подписи сохраняют каталог при запуске программы (`project htop`), добавляют сообщённые сервером хост и команду для SSH и используют формат Kubernetes из prompt. Starship отделяет контекст от ввода команды и показывает Git-статус со счётчиками. [Оценка всего окна и варианты prompt](docs/appearance.md), [настройки вкладок](docs/kitty-tabs.md).
 
-Для Kitty можно отдельно включить [графики входящего и исходящего трафика](docs/network-panel.md) в локальном конфиге.
+На Ubuntu 24.04 используйте `Ctrl+Alt+1…9`, если GNOME или KDE перехватывает `Super+1…9` для запуска приложений. [Ubuntu GNOME](docs/ubuntu-24.04-gnome.md) · [Ubuntu KDE](docs/ubuntu-24.04-kde.md).
+
+### Сетевая панель Kitty
+
+На Ubuntu 24.04 панель показывает входящий и исходящий трафик компьютера даже при одной вкладке. Установите последний стабильный релиз Kitty официальным установщиком. В пакете `apt` для Ubuntu 24.04 (Kitty 0.32.2) отсутствует API панели. Если Stow уже подключил `kitty.conf` и `tab_bar.py`, для обновления этих файлов достаточно обновить клон. [Установка и ярлык для Linux](docs/linux-install.md#3-zoxide-fzf-starship-и-kitty).
+
+```sh
+installer_file=$(mktemp) &&
+  curl -fsSL https://sw.kovidgoyal.net/kitty/installer.sh -o "$installer_file" &&
+  sh "$installer_file" launch=n &&
+  rm -f "$installer_file" &&
+  "$HOME/.local/kitty.app/bin/kitty" --version
+```
+
+Запустите новую версию командой `"$HOME/.local/kitty.app/bin/kitty"`. В широком окне Kitty справа вверху появятся `Linux`, `↓` и `↑`.
+
+Чтобы включить панель на этом устройстве даже при одной вкладке, выполните команду.
+
+```sh
+printf '%s\n' 'tab_bar_style custom' 'tab_bar_min_tabs 1' > "$HOME/.config/kitty/terminal-dotfiles-network.conf"
+```
+
+Чтобы выключить сетевую панель и показывать обычную панель при двух и более вкладках, выполните команду.
+
+```sh
+printf '%s\n' 'tab_bar_style fade' 'tab_bar_min_tabs 2' > "$HOME/.config/kitty/terminal-dotfiles-network.conf"
+```
+
+Перечитайте конфиг через `Ctrl+Shift+F5` на Linux или `Ctrl+Command+,` на macOS. Эти команды меняют только отдельный файл, который Kitty читает после `kitty.local.conf`. Чтобы вернуться к настройкам из остальных конфигов, выполните `rm -f "$HOME/.config/kitty/terminal-dotfiles-network.conf"`. [Как работает сетевая панель](docs/network-panel.md).
 
 ## SSH из Kitty
 

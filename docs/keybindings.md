@@ -1,6 +1,6 @@
 # Сочетания клавиш Kitty
 
-`super` в общем конфиге соответствует `Command` на macOS и клавише `Super` на Linux. Сочетания одинаковы в конфиге; GNOME и KDE могут захватывать часть из них как системные.
+`super` в общем конфиге соответствует `Command` на macOS и клавише `Super` на Linux. GNOME и KDE могут захватывать часть сочетаний как системные.
 
 | Действие | macOS | Linux |
 | --- | --- | --- |
@@ -10,7 +10,7 @@
 | Новая панель внутри вкладки | `Command+Enter` | `Super+Enter` |
 | Закрыть панель | `Command+Shift+D` | `Super+Shift+D` |
 | Следующая / предыдущая вкладка | `Command+Right/Left` | `Super+Right/Left` |
-| Вкладка по номеру 1–9 | `Command+1…9` | `Super+1…9` |
+| Вкладка по номеру 1–9 | `Command+1…9` | `Super+1…9`, на Ubuntu 24.04 также `Ctrl+Alt+1…9` |
 | Выбрать вкладку из списка | `Command+P` | `Super+P` |
 | Переименовать вкладку | `Command+Shift+T` | `Super+Shift+T` |
 | Копировать / вставить | `Command+C/V` | `Super+C/V` |

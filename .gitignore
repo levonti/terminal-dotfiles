@@ -7,6 +7,7 @@
 **/.zshrc.local
 **/.zshrc.local.post
 **/kitty.local.conf
+**/terminal-dotfiles-network.conf
 **/starship.local.toml
 **/.ssh/
 **/managed-ssh-hosts

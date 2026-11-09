@@ -2,7 +2,7 @@
 
 **English** · [Русский](README.ru.md)
 
-[Clean install](#install-on-a-clean-system) · [Ubuntu migration](#migrate-an-existing-ubuntu-2404-setup) · [Local overrides](#local-overrides)
+[Clean install](#install-on-a-clean-system) · [Ubuntu migration](#migrate-an-existing-ubuntu-2404-setup) · [Kitty network panel](#kitty-network-panel) · [Local overrides](#local-overrides)
 
 Shared configuration for Kitty, Zsh, Bash, Starship, and zoxide on macOS, Ubuntu 24.04 with GNOME or KDE Plasma, and Debian 13 with KDE Plasma. The setup gives you the same prompt, colors, font, and terminal shortcuts across machines.
 
@@ -88,11 +88,37 @@ Within a Kubie session, Starship shows the short cluster name and namespace befo
 
 ## Kitty tabs
 
-The tab bar uses a flat layout with gaps, a high-contrast active tab, numbers, and compact titles. Use `Command/Super+1…9` to jump to a tab by number, `Command/Super+P` to open the tab list, and `Command/Super+Shift+T` to name the session.
+The tab bar uses a flat layout with gaps, a high-contrast active tab, numbers, and compact titles. Use `Command/Super+1…9` to jump to a tab by number, `Command/Super+P` to open the tab list, and `Command/Super+Shift+T` to name the session. On Ubuntu 24.04, use `Ctrl+Alt+1…9` if GNOME or KDE reserves `Super+1…9` for launching apps. [Ubuntu GNOME (Russian)](docs/ubuntu-24.04-gnome.md) · [Ubuntu KDE (Russian)](docs/ubuntu-24.04-kde.md).
 
 Tab titles retain the directory while a program runs (for example, `project htop`), include the host and command reported by the server over SSH, and reuse the prompt's Kubernetes format. Starship separates context from the input line and shows Git status counters. [Appearance and prompt options (Russian)](docs/appearance.md) · [Kitty tab settings (Russian)](docs/kitty-tabs.md).
 
-You can enable inbound and outbound network charts in the local Kitty config. [Network panel guide (Russian)](docs/network-panel.md).
+### Kitty network panel
+
+On Ubuntu 24.04, the panel shows local inbound and outbound traffic even with one tab. Install the latest stable Kitty from the official installer. The Ubuntu 24.04 `apt` package (Kitty 0.32.2) lacks the API the panel uses. If you already linked `kitty.conf` and `tab_bar.py` with Stow, updating the clone is enough to update those files. [Linux installation and desktop launcher (Russian)](docs/linux-install.md#3-zoxide-fzf-starship-и-kitty).
+
+```sh
+installer_file=$(mktemp) &&
+  curl -fsSL https://sw.kovidgoyal.net/kitty/installer.sh -o "$installer_file" &&
+  sh "$installer_file" launch=n &&
+  rm -f "$installer_file" &&
+  "$HOME/.local/kitty.app/bin/kitty" --version
+```
+
+Use `"$HOME/.local/kitty.app/bin/kitty"` to start the new version. In a wide Kitty window, look for `Linux`, `↓` and `↑` at the top right.
+
+To enable the panel on this device, including with one tab, run the following command.
+
+```sh
+printf '%s\n' 'tab_bar_style custom' 'tab_bar_min_tabs 1' > "$HOME/.config/kitty/terminal-dotfiles-network.conf"
+```
+
+To disable it and show the regular tab bar from two tabs onward, run the following command.
+
+```sh
+printf '%s\n' 'tab_bar_style fade' 'tab_bar_min_tabs 2' > "$HOME/.config/kitty/terminal-dotfiles-network.conf"
+```
+
+Reload Kitty with `Ctrl+Shift+F5` on Linux or `Ctrl+Command+,` on macOS. These commands change only the dedicated override, which Kitty reads after `kitty.local.conf`. Remove it with `rm -f "$HOME/.config/kitty/terminal-dotfiles-network.conf"` to return to the other configuration files. [Network panel guide (Russian)](docs/network-panel.md).
 
 ## SSH from Kitty
 

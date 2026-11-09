@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlsplit
 
 class InterfaceData64(c.Structure):
     # Public Darwin ABI: net/if_var.h, struct if_data64, packed to 4 bytes.
+    _layout_ = "ms"  # Preserve the layout selected by _pack_ on Python < 3.14.
     _pack_ = 4
     _fields_ = [("metadata", c.c_ubyte * 8), ("mtu", c.c_uint32), ("metric", c.c_uint32),
                 ("baudrate", c.c_uint64), ("packets", c.c_uint64 * 5),
@@ -532,6 +533,38 @@ def allocate_widths(desired, available, priorities=()):
     return widths
 
 
+def draw_network_panel(tab_bar, screen, segments, start, background):
+    def paint():
+        old_fg, old_bg = screen.cursor.fg, screen.cursor.bg
+        screen.cursor.x = start
+        screen.cursor.bg = background
+        for color, text in segments:
+            screen.cursor.fg = (color << 8) | 2
+            screen.draw(text)
+        screen.cursor.fg, screen.cursor.bg = old_fg, old_bg
+
+    if tab_bar is None or tab_bar.tab_bar_align == "start":
+        paint()
+        return
+
+    # Kitty aligns the whole row after drawing and recording the tab hit areas.
+    # For this row, align only the tabs and then paint the reserved network area.
+    original_align = tab_bar.align
+
+    def align_tabs_then_paint():
+        tab_bar.align = original_align
+        shift = start - tab_bar.tab_extents[-1].x.end - 2  # Leave one cell between tabs and panel.
+        if tab_bar.tab_bar_align == "center":
+            shift //= 2
+        if shift > 0:
+            screen.cursor.x = 0
+            screen.insert_characters(shift)
+            tab_bar.tab_extents = tuple(extent.shifted(x=shift) for extent in tab_bar.tab_extents)
+        paint()
+
+    tab_bar.align = align_tabs_then_paint
+
+
 def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data):
     from kitty.fast_data_types import get_boss, wcswidth
     from kitty.tab_bar import apply_title_template, draw_attributed_string, draw_tab_with_fade
@@ -540,7 +573,8 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
         return draw_tab_with_fade(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data)
 
     manager = get_boss().os_window_map.get(draw_data.os_window_id)
-    data = manager.tab_bar.last_laid_out_tabs if manager else (tab,)
+    tab_bar = manager.tab_bar if manager else None
+    data = tab_bar.last_laid_out_tabs if tab_bar is not None else (tab,)
     titles = [apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip() for i, item in enumerate(data)]
     # SGR prefixes and transient attention icons must not shift tab boundaries.
     stable_titles = [apply_title_template(draw_data, item._replace(is_active=False, needs_attention=False,
@@ -575,9 +609,21 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
     if width:
         screen.cursor.x -= 1
         screen.draw(" ")
-    if is_last:
-        screen.cursor.x = screen.columns - panel_width
-        for color, text in segments:
-            screen.cursor.fg = (color << 8) | 2
-            screen.draw(text)
+    if is_last and panel_width:
+        draw_network_panel(tab_bar, screen, segments, screen.columns - panel_width, screen.cursor.bg)
     return end
+
+
+# Kitty runs geninclude scripts as __main__, separately from loading the tab renderer.
+if __name__ == "__main__" and sys.platform == "linux":
+    from platform import freedesktop_os_release
+
+    try:
+        release = freedesktop_os_release()
+    except OSError:
+        release = {}
+    if release.get("ID") == "ubuntu" and release.get("VERSION_ID") == "24.04":
+        print("tab_bar_style custom\ntab_bar_min_tabs 1")
+        # The desktop can grab Super+number for its app launcher.
+        for number in range(1, 10):
+            print(f"map --allow-fallback=shifted,ascii ctrl+alt+{number} goto_tab {number}")
