@@ -14,6 +14,8 @@ esac
 
 command -v stow >/dev/null 2>&1 || fail 'GNU Stow is required; on Ubuntu run: sudo apt install stow'
 repo_dir=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
+rollback_script="$repo_dir/scripts/rollback-path.pl"
+[ -r "$rollback_script" ] || fail "Cannot read rollback helper: $rollback_script"
 target_home=$(CDPATH='' cd "${HOME:?HOME is required}" && pwd -P)
 case "$target_home/" in
   "$repo_dir/"*) fail 'HOME must be outside the dotfiles checkout.' ;;
@@ -63,12 +65,6 @@ installed_link() {
   [ -L "$target_home/${1#*/}" ] && [ "$target_home/${1#*/}" -ef "$repo_dir/$1" ]
 }
 
-safe_parents() {
-  case $1 in
-    .config/*) [ ! -L "$target_home/.config" ] && [ ! -L "$target_home/${1%/*}" ] ;;
-  esac
-}
-
 require_writable_dir() {
   parent=$1
   while [ ! -d "$parent" ]; do
@@ -79,76 +75,19 @@ require_writable_dir() {
   fi
 }
 
-restore_backup() {
-  # link() publishes to the exact path and fails if any entry already exists.
-  perl -MErrno=EEXIST -MFile::Basename=dirname -MFile::Temp=tempdir -e '
-    my ($saved, $target) = @ARGV;
-    unless (link($saved, $target)) {
-      die "Cannot restore $target: $!\n" if $! == EEXIST;
-      # Stage a copy on the destination filesystem before publishing it.
-      my $stage = tempdir(".terminal-dotfiles-restore.XXXXXXXX", DIR => dirname($target), CLEANUP => 1);
-      my $copy = "$stage/config";
-      system("cp", "-a", $saved, $copy) == 0 or die "Cannot stage backup $saved\n";
-      link($copy, $target) or die "Cannot restore $target: $!\n";
-    }
-    unlink($saved) or die "Cannot remove restored backup $saved: $!\n";
-  ' -- "$1" "$2"
-}
-
-remove_installed_link() {
-  # Move the entry to a private directory before deciding whether to delete it.
-  perl -MErrno=ENOENT -MFile::Basename=basename,dirname -MFile::Temp=tempdir -e '
-    my ($target, $source) = @ARGV;
-    my $parent = dirname($target);
-    my $name = basename($target);
-    chdir($parent) or die "Cannot enter $parent for rollback: $!\n";
-    my $stage = tempdir(".terminal-dotfiles-rollback.XXXXXXXX", DIR => ".", CLEANUP => 0);
-    my $saved = "$stage/entry";
-    unless (rename($name, $saved)) {
-      my ($missing, $error) = ($! == ENOENT, "$!");
-      rmdir($stage) or warn "Cannot remove $parent/$stage: $!\n";
-      exit 0 if $missing;
-      die "Cannot stage $target for rollback: $error\n";
-    }
-
-    # Interpret relative link targets from the original parent directory.
-    my $link = readlink($saved);
-    my @referent = defined($link) ? stat($link) : ();
-    my @expected = stat($source);
-    unless (@referent && @expected && $referent[0] == $expected[0] && $referent[1] == $expected[1]) {
-      my $restored = defined($link) ? symlink($link, $name) : link($saved, $name);
-      $restored or die "Cannot return $target: $!; saved at $parent/$saved\n";
-    }
-    unlink($saved) or die "Cannot remove staging entry $parent/$saved: $!\n";
-    rmdir($stage) or warn "Cannot remove $parent/$stage: $!\n";
-  ' -- "$1" "$2"
-}
-
 rollback() {
   if [ "$applying" -eq 1 ]; then
     for entry in $pending; do
-      relative=${entry#*/}
-      if ! safe_parents "$relative"; then
-        printf 'Cannot roll back %s: a parent is now a symlink.\n' "$target_home/$relative" >&2
-      elif installed_link "$entry"; then
-        remove_installed_link "$target_home/$relative" "$repo_dir/$entry"
-      fi
+      perl "$rollback_script" remove-link "$target_home/${entry#*/}" "$repo_dir/$entry"
     done
     for dir in $new_dirs; do
-      if safe_parents "$dir"; then
-        rmdir "$target_home/$dir" 2>/dev/null || :
-      fi
+      perl "$rollback_script" remove-directory "$target_home/$dir"
     done
   fi
   if [ -n "$backup_dir" ]; then
     for relative in $originals; do
       [ -f "$backup_dir/$relative" ] || continue
-      target="$target_home/$relative"
-      if ! safe_parents "$relative"; then
-        printf 'Cannot restore %s: a parent is now a symlink.\n' "$target" >&2
-      else
-        restore_backup "$backup_dir/$relative" "$target"
-      fi
+      perl "$rollback_script" restore "$target_home/$relative" "$backup_dir/$relative"
     done
     rmdir "$backup_dir/.config/terminal-dotfiles" "$backup_dir/.config/kitty" \
       "$backup_dir/.config" "$backup_dir" 2>/dev/null || :

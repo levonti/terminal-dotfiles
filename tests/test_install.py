@@ -236,7 +236,9 @@ class InstallerTests(unittest.TestCase):
             executable = shlex.quote(shutil.which(program))
             wrapper.write_text(
                 "#!/bin/sh\n"
-                "for destination do :; done\n"
+                "destination=\n"
+                'for argument do previous=$destination; destination=$argument; done\n'
+                'if [ "${2-}" = restore ]; then destination=$previous; fi\n'
                 f'if [ "$destination" = {shlex.quote(str(rc))} ]; then\n'
                 '  printf "%s\\n" "new configuration" > "$destination"\n'
                 "fi\n"
@@ -287,6 +289,58 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual((backup / rc.name).read_text(), ORIGINALS[rc.name])
         self.assertIn(str(backup), install.stderr)
         self.assertFalse(list(self.home.rglob(".terminal-dotfiles-rollback.*")))
+
+    def assert_rollback_rejects_parent_symlink(self, action, parent):
+        self.write_originals()
+        relative = ".config/kitty/kitty.conf"
+        target = self.home / relative
+        parent = self.home / parent
+        other = self.work / "other configuration"
+        moved = self.work / "moved configuration"
+        other_file = other / target.relative_to(parent)
+        other_file.parent.mkdir(parents=True)
+        source = ROOT / MANAGED[relative]
+        if action == "remove-link":
+            other_file.symlink_to(source)
+
+        bin_dir = self.fail_stow_after_apply()
+        wrapper = bin_dir / "perl"
+        executable = shlex.quote(shutil.which("perl"))
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            "previous=\n"
+            "last=\n"
+            'for argument do previous=$last; last=$argument; done\n'
+            f'action={shlex.quote(action)}\n'
+            f'target={shlex.quote(str(target))}\n'
+            'if { [ "${2-}" = "$action" ] && [ "$previous" = "$target" ]; } ||\n'
+            '   { [ "$action" = remove-link ] && [ "$1" = -MErrno=ENOENT ] && [ "$previous" = "$target" ]; } ||\n'
+            '   { [ "$action" = restore ] && [ "$1" = -MErrno=EEXIST ] && [ "$last" = "$target" ]; }; then\n'
+            f'  mv {shlex.quote(str(parent))} {shlex.quote(str(moved))} || exit $?\n'
+            f'  ln -s {shlex.quote(str(other))} {shlex.quote(str(parent))} || exit $?\n'
+            "fi\n"
+            f'exec {executable} "$@"\n'
+        )
+        wrapper.chmod(0o755)
+
+        install = self.run_installer("install.sh", "--migrate")
+        self.assertEqual(install.returncode, 42, install.stderr)
+        self.assertEqual(parent.readlink(), other)
+        if action == "remove-link":
+            self.assertEqual(other_file.readlink(), source)
+            self.assertTrue((moved / target.relative_to(parent)).is_symlink())
+        else:
+            self.assertFalse(other_file.exists())
+        backup, = self.backups()
+        self.assertEqual((backup / relative).read_text(), ORIGINALS[relative])
+        self.assertIn("cannot open parent", install.stderr)
+        self.assertIn(str(backup), install.stderr)
+
+    def test_rollback_cleanup_rejects_a_symlink_replacing_the_parent(self):
+        self.assert_rollback_rejects_parent_symlink("remove-link", ".config/kitty")
+
+    def test_rollback_restore_rejects_a_symlink_replacing_an_ancestor(self):
+        self.assert_rollback_rejects_parent_symlink("restore", ".config")
 
     def test_bash_rejects_simulated_success_and_restores_original(self):
         bashrc = self.home / ".bashrc"
