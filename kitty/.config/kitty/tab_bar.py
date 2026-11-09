@@ -405,7 +405,7 @@ def kubernetes_title(state, formatter):
     badge = environment
     if formatter:
         background = getattr(formatter.bg, "_" + color)
-        badge = f"{background}{formatter.fg._171b24}{badge}{formatter.bg.tab}{formatter.fg.tab}"
+        badge = f"{background}{formatter.fg._171b24}\x1b[1m{badge}\x1b[22m{formatter.bg.tab}{formatter.fg.tab}"
     return f"{badge} {title}"
 
 
@@ -440,6 +440,8 @@ def window_title(window, title, state):
     cwd = state["cwd"] if state else window.get_cwd_of_child() or ""
     directory = "~" if cwd == str(Path.home()) else compact_title(cwd) if cwd else ""
     if state:
+        if state["context"]:
+            directory = ""
         command = command_name(state["command"]) if state["phase"] == "running" else ""
         # Bash PS0 can have an older history entry when HISTIGNORE/ignorespace
         # excludes a command. Prefer a real foreground application once started.
@@ -627,6 +629,8 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
             fg = color_as_int(draw_data.tab_fg(tab))
             restore_fg = f"\x1b[38;2;{fg >> 16};{(fg >> 8) & 255};{fg & 255}m"
             title = fit_title(title, width - 1, restore_fg)
+            if tab.is_active:
+                title += "\x1b[24;59m"
         draw_attributed_string(title, screen)
     screen.cursor.x = start + width
     end = max(start, screen.cursor.x - 1)

@@ -34,6 +34,8 @@ class RealKubieCycleTests(unittest.TestCase):
         with TemporaryDirectory(prefix="kitty-kubie-cycle-") as directory:
             fixture = Path(directory)
             install(fixture)
+            policy = fixture / ".config/terminal-dotfiles/kube-environments.yaml"
+            policy.write_text("context_labels:\n  'prod:fixture': core01\n")
             (fixture / ".kube").mkdir()
             (fixture / "project").mkdir()
             (fixture / "bin").mkdir()
@@ -128,26 +130,31 @@ class RealKubieCycleTests(unittest.TestCase):
                 self.assertNotIn("kubie", actual)
                 if prompt_label is not None:
                     self.assertIn(prompt_label, tab_bar.plain_title(prompt_output))
+                    self.assertIn("\x1b[1;38;2;23;27;36;48;2;237;135;150m[PROD]\x1b[0m", prompt_output)
                 self.assertFalse(api_guard.exists(), "The isolated cycle attempted kubectl/API access")
 
             try:
                 render("project", wait_for("prompt"))
                 # One fixture context is selected automatically by real `kubie ctx`.
                 os.write(fd, b"kubie ctx -n app\n")
-                render("PROD prod:fixture::app project", wait_for("prompt"), prompt_label="[PROD prod:fixture::app]")
+                render("PROD core01 / app", wait_for("prompt"), prompt_label="[PROD] core01 / app")
                 for iteration in range(2):
                     os.write(fd, b"htop --readonly --pid $$\n")
                     wait_for("tui")
-                    render("PROD prod:fixture::app project htop", htop=True)
+                    render("PROD core01 / app htop", htop=True)
                     os.write(fd, b"q")
-                    render("PROD prod:fixture::app project", wait_for("prompt"), prompt_label="[PROD prod:fixture::app]")
+                    render("PROD core01 / app", wait_for("prompt"), prompt_label="[PROD] core01 / app")
                     os.write(fd, b"kubie ns changed\n")
-                    render("PROD prod:fixture::changed project", wait_for("prompt"), prompt_label="[PROD prod:fixture::changed]")
+                    render("PROD core01 / changed", wait_for("prompt"), prompt_label="[PROD] core01 / changed")
                     os.write(fd, b"exit\n")
                     render("project", wait_for("prompt"))
                     if iteration == 0:
+                        policy.unlink()
                         os.write(fd, b"kubie ctx prod:fixture -n app\n")
-                        render("PROD prod:fixture::app project", wait_for("prompt"), prompt_label="[PROD prod:fixture::app]")
+                        render("PROD prod:fixture / app", wait_for("prompt"), prompt_label="[PROD] prod:fixture / app")
+                        policy.write_text("context_labels:\n  'prod:fixture': core01\n")
+                        os.write(fd, b"\n")
+                        render("PROD core01 / app", wait_for("prompt"), prompt_label="[PROD] core01 / app")
             finally:
                 os.close(fd)
                 try:

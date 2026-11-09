@@ -74,7 +74,7 @@ class TitleTests(unittest.TestCase):
 
     def test_context_survives_running_commands_and_clears_after_exit(self):
         self.assertEqual(self.render("htop", context="[☸ DEV example::app]", kube_env="DEV", at_prompt=False, argv=["htop"]),
-                         "DEV example::app project htop")
+                         "DEV example::app htop")
         # Simulate returning to a parent which never loaded the new hooks.
         self.assertEqual(self.render("~", context="[☸ DEV example::app]", kubie=False), "project")
 
@@ -97,7 +97,7 @@ class TitleTests(unittest.TestCase):
 
     def test_kubie_prompt_ignores_wrapper_and_foreground_environment(self):
         self.assertEqual(self.render("kubie ctx", context="[☸ example::app]", argv=["kubie"]),
-                         "[☸ example::app] project")
+                         "[☸ example::app]")
 
     def test_actual_program_overrides_stale_bash_history_hint(self):
         state = dict(v=1, pid=os.getpid(), phase="running", cwd="/work/project", context="", command="kubie")
@@ -131,7 +131,7 @@ class TitleTests(unittest.TestCase):
             ("PROD", "[☸ DEV sandbox::app]", "DEV sandbox", "ed8796"),
             ("?ENV", "[☸ ? ENV example::app]", "example", "c1a7d5"),
         ):
-            expected = f"{environment} {cluster}::app project"
+            expected = f"{environment} {cluster}::app"
             rgb = bytes.fromhex(color)
             fill = f"\x1b[48:2::{rgb[0]}:{rgb[1]}:{rgb[2]}m"
             text = "\x1b[38:2::23:27:36m"
@@ -141,12 +141,12 @@ class TitleTests(unittest.TestCase):
                     bg=SimpleNamespace(tab=f"\x1b[48:2::{background}m", **{"_" + color: fill}))
                 result = self.render("~", context=context, kube_env=environment, formatter=formatter)
                 self.assertEqual(tabs.plain_title(result), expected)
-                self.assertTrue(result.startswith(fill + text + environment + formatter.bg.tab + formatter.fg.tab + " "))
+                self.assertTrue(result.startswith(fill + text + "\x1b[1m" + environment + "\x1b[22m" + formatter.bg.tab + formatter.fg.tab + " "))
             self.assertEqual(self.render("~", context=context, kube_env=environment), expected)
 
     def test_kubernetes_badge_preserves_nonstandard_starship_text(self):
-        self.assertEqual(self.render("~", context="kube example/app", kube_env="TEST"), "TEST kube example/app project")
-        self.assertEqual(self.render("~", context="[☸ example::app]", kube_env=[]), "[☸ example::app] project")
+        self.assertEqual(self.render("~", context="kube example/app", kube_env="TEST"), "TEST kube example/app")
+        self.assertEqual(self.render("~", context="[☸ example::app]", kube_env=[]), "[☸ example::app]")
 
     def test_return_to_parent_invalidates_same_frame_cache(self):
         child = SimpleNamespace(pid=os.getpid(), pid_for_cwd=101, foreground_cmdline=["zsh"])
@@ -158,7 +158,7 @@ class TitleTests(unittest.TestCase):
         fast = ModuleType("kitty.fast_data_types")
         fast.get_boss = lambda: SimpleNamespace(tab_for_id=lambda _: tab)
         with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast}), patch.object(tabs, "monotonic", return_value=10), patch.object(tabs.os, "getsid", side_effect=[1, 1, ProcessLookupError]):
-            self.assertEqual(tabs.draw_title({"tab_id": 1, "title": "~"}), "[☸ DEV example::app] project")
+            self.assertEqual(tabs.draw_title({"tab_id": 1, "title": "~"}), "[☸ DEV example::app]")
             child.pid_for_cwd = 100
             self.assertEqual(tabs.draw_title({"tab_id": 1, "title": "~"}), "project")
 
@@ -374,7 +374,7 @@ class ShellMetadataTests(unittest.TestCase):
             value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
             state = json.loads(base64.b64decode(value))
             self.assertGreater(state["pid"], 0)
-            self.assertEqual(tabs.plain_title(state["context"]), "dev:example::app")
+            self.assertEqual(tabs.plain_title(state["context"]), "dev:example / app")
             self.assertEqual(state["kube_env"], "DEV")
             self.assertEqual(state["phase"], "prompt")
             self.assertEqual(output.count("_terminal_dotfiles_kubie_title"), 1)
@@ -385,7 +385,7 @@ class ShellMetadataTests(unittest.TestCase):
             value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
             state = json.loads(base64.b64decode(value))
             self.assertEqual(state["kube_env"], "DEV")
-            self.assertEqual(state["context"], "prod:arbitrary::app")
+            self.assertEqual(state["context"], "prod:arbitrary / app")
 
     def test_outer_shell_and_failed_reads_clear_stale_context(self):
         for shell in SHELLS:

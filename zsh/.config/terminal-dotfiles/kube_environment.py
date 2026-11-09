@@ -95,6 +95,10 @@ def resolve(home, active, settings=None):
         label, color = profile['label'], profile['color'].lstrip('#')
         if not re.fullmatch(r'[A-Z0-9?_-]{1,12}', label) or not re.fullmatch(r'[0-9a-fA-F]{6}', color):
             raise ValueError('invalid profile')
+        context_labels = policy.get('context_labels', {})
+        short_name = context_labels.get(name) if isinstance(context_labels, dict) else None
+        if isinstance(short_name, str) and short_name.isprintable() and short_name.strip():
+            result['context_label'] = short_name.strip()
         result.update(environment=env, label=label, color=color,
                       reason='override' if overrides else 'directory')
     except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, StopIteration, yaml.YAMLError):
@@ -110,16 +114,18 @@ def main():
         return
     state = resolve(Path.home(), active)
     # Only printable text is ever sent to terminal consumers.
-    context = ''.join(c for c in state.get('context', '') if c.isprintable())
+    context = ''.join(c for c in state.get('context_label', state.get('context', '')) if c.isprintable())
     namespace = ''.join(c for c in state.get('namespace', '') if c.isprintable())
-    title = context + ('::' + namespace if namespace else '')
+    suffix = ' / ' + namespace if namespace else ''
     if '--json' in sys.argv:
         print(json.dumps(state))
     elif '--state' in sys.argv:
-        print(state['label'] + '\t' + state['color'] + '\t' + title)
+        print(state['label'] + '\t' + state['color'] + '\t' + context + suffix)
     elif context:
         rgb = ';'.join(str(int(state['color'][i:i+2], 16)) for i in (0, 2, 4))
-        print(f'\033[1;38;2;{rgb}m[{state["label"]} {title}]\033[0m', end='')
+        badge = f'\033[1;38;2;23;27;36;48;2;{rgb}m[{state["label"]}]\033[0m'
+        detail = f'\033[38;2;162;173;189m{suffix}\033[0m' if suffix else ''
+        print(f'{badge} {context}{detail}', end='')
 
 
 if __name__ == '__main__':
