@@ -79,6 +79,22 @@ require_writable_dir() {
   fi
 }
 
+restore_backup() {
+  # link() publishes to the exact path and fails if any entry already exists.
+  perl -MErrno=EEXIST -MFile::Basename=dirname -MFile::Temp=tempdir -e '
+    my ($saved, $target) = @ARGV;
+    unless (link($saved, $target)) {
+      die "Cannot restore $target: $!\n" if $! == EEXIST;
+      # Stage a copy on the destination filesystem before publishing it.
+      my $stage = tempdir(".terminal-dotfiles-restore.XXXXXXXX", DIR => dirname($target), CLEANUP => 1);
+      my $copy = "$stage/config";
+      system("cp", "-a", $saved, $copy) == 0 or die "Cannot stage backup $saved\n";
+      link($copy, $target) or die "Cannot restore $target: $!\n";
+    }
+    unlink($saved) or die "Cannot remove restored backup $saved: $!\n";
+  ' -- "$1" "$2"
+}
+
 rollback() {
   if [ "$applying" -eq 1 ]; then
     for entry in $pending; do
@@ -101,10 +117,8 @@ rollback() {
       target="$target_home/$relative"
       if ! safe_parents "$relative"; then
         printf 'Cannot restore %s: a parent is now a symlink.\n' "$target" >&2
-      elif [ ! -e "$target" ] && [ ! -L "$target" ]; then
-        mv "$backup_dir/$relative" "$target"
       else
-        printf 'Cannot restore %s: the path is occupied.\n' "$target" >&2
+        restore_backup "$backup_dir/$relative" "$target"
       fi
     done
     rmdir "$backup_dir/.config/terminal-dotfiles" "$backup_dir/.config/kitty" \

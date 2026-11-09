@@ -57,6 +57,18 @@ class InstallerTests(unittest.TestCase):
     def backups(self):
         return sorted(self.home.glob(".terminal-dotfiles-backup.*"))
 
+    def fail_stow_after_apply(self):
+        bin_dir = self.work / "bin"
+        bin_dir.mkdir()
+        wrapper = bin_dir / "stow"
+        wrapper.write_text(
+            f"#!/bin/sh\n{shlex.quote(STOW)} \"$@\" || exit $?\n"
+            'if [ "$1" != --simulate ]; then exit 42; fi\n'
+        )
+        wrapper.chmod(0o755)
+        self.env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+        return bin_dir
+
     def test_check_and_migration_preserve_originals_and_local_files(self):
         self.write_originals()
         local = self.home / ".zshrc.local"
@@ -122,6 +134,7 @@ class InstallerTests(unittest.TestCase):
         def start_zsh(command):
             result = subprocess.run(
                 [ZSH, "-ic", command], cwd=self.work, env=self.env,
+                stdin=subprocess.DEVNULL, start_new_session=True,
                 capture_output=True, text=True, timeout=10,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -199,15 +212,7 @@ class InstallerTests(unittest.TestCase):
         existing = self.home / ".config/kitty/tab_bar.py"
         source = ROOT / MANAGED[".config/kitty/tab_bar.py"]
         existing.symlink_to(source)
-        bin_dir = self.work / "bin"
-        bin_dir.mkdir()
-        wrapper = bin_dir / "stow"
-        wrapper.write_text(
-            f"#!/bin/sh\n{shlex.quote(STOW)} \"$@\" || exit $?\n"
-            'if [ "$1" != --simulate ]; then exit 42; fi\n'
-        )
-        wrapper.chmod(0o755)
-        self.env["PATH"] = f"{bin_dir}{os.pathsep}{self.env['PATH']}"
+        self.fail_stow_after_apply()
 
         install = self.run_installer("install.sh", "--migrate")
         self.assertEqual(install.returncode, 42, install.stderr)
@@ -221,6 +226,33 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.home / ".config/terminal-dotfiles").exists())
         self.assertFalse((self.home / ".terminal-dotfiles-install.lock").exists())
         self.assertFalse(self.backups())
+
+    def test_rollback_preserves_a_concurrently_created_config(self):
+        self.write_originals()
+        rc = self.home / ".zshrc"
+        bin_dir = self.fail_stow_after_apply()
+        for program in ("mv", "perl"):
+            wrapper = bin_dir / program
+            executable = shlex.quote(shutil.which(program))
+            wrapper.write_text(
+                "#!/bin/sh\n"
+                "for destination do :; done\n"
+                f'if [ "$destination" = {shlex.quote(str(rc))} ]; then\n'
+                '  printf "%s\\n" "new configuration" > "$destination"\n'
+                "fi\n"
+                f'exec {executable} "$@"\n'
+            )
+            wrapper.chmod(0o755)
+
+        install = self.run_installer("install.sh", "--migrate")
+        self.assertEqual(install.returncode, 42, install.stderr)
+        self.assertEqual(rc.read_text(), "new configuration\n")
+        backup, = self.backups()
+        self.assertEqual((backup / rc.name).read_text(), ORIGINALS[rc.name])
+        self.assertIn(f"Cannot restore {rc}", install.stderr)
+        self.assertIn(str(backup), install.stderr)
+        kitty_config = ".config/kitty/kitty.conf"
+        self.assertEqual((self.home / kitty_config).read_text(), ORIGINALS[kitty_config])
 
     def test_bash_rejects_simulated_success_and_restores_original(self):
         bashrc = self.home / ".bashrc"
