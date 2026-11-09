@@ -365,14 +365,13 @@ def contrast(first, second):
     return (high + 0.05) / (low + 0.05)
 
 
-def accent_kubernetes(title, data, encoded_state):
-    formatter = data.get("fmt")
+def accent_kubernetes_icon(title, formatter, raw_context):
+    # Old shell snapshots and custom kubeconfigs may have no environment label.
     if not formatter or "☸" not in title:
         return title
     try:
-        raw_context = json.loads(encoded_state)["context"]
         color = sgr_rgb(raw_context.split("☸", 1)[0], 38)
-    except (ValueError, TypeError, KeyError):
+    except ValueError:
         return title
     if color:
         background = sgr_rgb(formatter.bg.tab, 48)
@@ -387,6 +386,26 @@ def accent_kubernetes(title, data, encoded_state):
         icon = f"\x1b[38;2;{color[0]};{color[1]};{color[2]}m☸{formatter.fg.tab}"
         return title.replace("☸", icon, 1)
     return title
+
+
+KUBE_BADGE_COLORS = {"DEV": "a3be8c", "TEST": "ebcb8b", "PROD": "ed8796", "?ENV": "c1a7d5"}
+KUBE_PROMPT_PREFIXES = {"DEV": "DEV ", "TEST": "TEST ", "?ENV": "? ENV "}
+
+
+def kubernetes_title(state, formatter):
+    if not state or not (title := plain_title(state["context"])):
+        return ""
+    environment = state.get("kube_env")
+    if not isinstance(environment, str) or environment not in KUBE_BADGE_COLORS:
+        return accent_kubernetes_icon(title, formatter, state["context"])
+
+    if title.startswith("[☸ ") and title.endswith("]"):
+        title = title[3:-1].removeprefix(KUBE_PROMPT_PREFIXES.get(environment, ""))
+    badge = environment
+    if formatter:
+        background = getattr(formatter.bg, "_" + KUBE_BADGE_COLORS[environment])
+        badge = f"{background}{formatter.fg._171b24}{badge}{formatter.bg.tab}{formatter.fg.tab}"
+    return f"{badge} {title}"
 
 
 def draw_title(data):
@@ -405,22 +424,21 @@ def draw_title(data):
     cached = getattr(window, "_dotfiles_title_cache", None)
     # Kitty calls this for every tab during both layout and painting. Avoid
     # repeating process/cwd lookups within one frame; expire state promptly.
-    if cached and cached[0] == key and now - cached[1] < 0.1:
-        return accent_kubernetes(cached[2], data, key[-1])
-    result = window_title(window, title)
-    window._dotfiles_title_cache = key, now, result
-    return accent_kubernetes(result, data, key[-1])
+    if cached is None or len(cached) != 4 or cached[0] != key or now - cached[1] >= 0.1:
+        state = shell_state(window)
+        cached = window._dotfiles_title_cache = key, now, state, window_title(window, title, state)
+    _, _, state, detail = cached
+    context = kubernetes_title(state, data.get("fmt"))
+    return " ".join(part for part in (context, detail) if part)
 
 
-def window_title(window, title):
+def window_title(window, title, state):
     if window.child_is_remote:
         return remote_title(window, title)
     _remote_locations.pop(window.id, None)
-    state = shell_state(window)
     cwd = state["cwd"] if state else window.get_cwd_of_child() or ""
     directory = "~" if cwd == str(Path.home()) else compact_title(cwd) if cwd else ""
     if state:
-        context = plain_title(state["context"])
         command = command_name(state["command"]) if state["phase"] == "running" else ""
         # Bash PS0 can have an older history entry when HISTIGNORE/ignorespace
         # excludes a command. Prefer a real foreground application once started.
@@ -430,7 +448,7 @@ def window_title(window, title):
         # while a waiting Kubie supervisor is never mistaken for that app.
         if not command and not window.at_prompt:
             command = local_program(window)
-        return " ".join(part for part in (context, directory, command) if part)
+        return " ".join(part for part in (directory, command) if part)
     command = ""
     # OSC 2 can arrive just before OSC 133 marks command execution. A non-path
     # title already names that command, even while at_prompt still says True.
@@ -451,17 +469,24 @@ def window_title(window, title):
 def fit_title(title, width, restore_fg=""):
     from kitty.fast_data_types import wcswidth
     from kitty.tab_bar import truncate_line
-    if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) <= width:
+    text = re.sub(r"\x1b\[[0-9;:]*m", "", title)
+    if wcswidth(text) <= width:
         return title
+    prefix = re.match(r" *\d+ (\S+) ", text) if "\x1b[48" in title else None
+    badge_end = prefix.end() - 1 if prefix and prefix[1] in KUBE_BADGE_COLORS else 0
+    # Keep the whole environment label when the next cell would be the ellipsis.
+    if badge_end and width == badge_end:
+        return truncate_line(title, width + 1).removesuffix("…")
     identity, separator, command = title.rpartition(" ")
     if separator and width >= 12:
         command_width = min(wcswidth(command), width // 2)
-        if wcswidth(command) > command_width:
-            command = truncate_line(command, command_width)
         identity_width = width - command_width - 1
-        if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", identity)) > identity_width:
-            identity = truncate_line(identity, identity_width)
-        return identity + restore_fg + " " + command
+        if identity_width > badge_end:
+            if wcswidth(command) > command_width:
+                command = truncate_line(command, command_width)
+            if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", identity)) > identity_width:
+                identity = truncate_line(identity, identity_width)
+            return identity + restore_fg + " " + command
     return truncate_line(title, width)
 
 

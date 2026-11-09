@@ -100,7 +100,7 @@ class RealKubieCycleTests(unittest.TestCase):
                             return output.decode(errors="replace")
                 self.fail(f"No {kind} state in the isolated Kubie PTY. Output tail: {output[-1500:]!r}")
 
-            def render(expected, prompt_output=None, htop=False):
+            def render(expected, prompt_output=None, htop=False, prompt_label=None):
                 group = os.tcgetpgrp(fd)
                 rows = subprocess.check_output([TOOLS["ps"], "-axo", "pid=,pgid=,comm="], text=True)
                 foreground = []
@@ -122,29 +122,28 @@ class RealKubieCycleTests(unittest.TestCase):
                 self.assertEqual(actual, expected)
                 self.assertNotIn("·", actual)
                 self.assertNotIn("kubie", actual)
-                if prompt_output is not None and expected.startswith("[☸"):
-                    label = expected.split("]", 1)[0] + "]"
-                    self.assertIn(label, tab_bar.plain_title(prompt_output))
+                if prompt_label is not None:
+                    self.assertIn(prompt_label, tab_bar.plain_title(prompt_output))
                 self.assertFalse(api_guard.exists(), "The isolated cycle attempted kubectl/API access")
 
             try:
                 render("project", wait_for("prompt"))
                 # One fixture context is selected automatically by real `kubie ctx`.
                 os.write(fd, b"kubie ctx -n app\n")
-                render("[☸ fixture::app] project", wait_for("prompt"))
+                render("PROD fixture::app project", wait_for("prompt"), prompt_label="[☸ fixture::app]")
                 for iteration in range(2):
                     os.write(fd, b"htop --readonly --pid $$\n")
                     wait_for("tui")
-                    render("[☸ fixture::app] project htop", htop=True)
+                    render("PROD fixture::app project htop", htop=True)
                     os.write(fd, b"q")
-                    render("[☸ fixture::app] project", wait_for("prompt"))
+                    render("PROD fixture::app project", wait_for("prompt"), prompt_label="[☸ fixture::app]")
                     os.write(fd, b"kubie ns changed\n")
-                    render("[☸ fixture::changed] project", wait_for("prompt"))
+                    render("PROD fixture::changed project", wait_for("prompt"), prompt_label="[☸ fixture::changed]")
                     os.write(fd, b"exit\n")
                     render("project", wait_for("prompt"))
                     if iteration == 0:
                         os.write(fd, b"kubie ctx prod:fixture -n app\n")
-                        render("[☸ fixture::app] project", wait_for("prompt"))
+                        render("PROD fixture::app project", wait_for("prompt"), prompt_label="[☸ fixture::app]")
             finally:
                 os.close(fd)
                 try:

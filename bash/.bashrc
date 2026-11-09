@@ -53,15 +53,25 @@ if [[ -n ${KITTY_WINDOW_ID-} && -z ${SSH_TTY-}${SSH_CONNECTION-} ]]; then
     context=${context//\\/\\\\}; context=${context//\"/\\\"}
     context=${context//$'\033'/\\u001b}; context=${context//[[:cntrl:]]/}
     program=${program//\\/\\\\}; program=${program//\"/\\\"}
-    encoded=$(printf '{"v":1,"pid":%s,"phase":"%s","cwd":"%s","context":"%s","command":"%s"}' \
-      "$$" "$phase" "$directory" "$context" "$program" | command base64 | command tr -d '\r\n')
+    encoded=$(printf '{"v":1,"pid":%s,"phase":"%s","cwd":"%s","context":"%s","command":"%s","kube_env":"%s"}' \
+      "$$" "$phase" "$directory" "$context" "$program" "${_terminal_dotfiles_kube_env-}" | command base64 | command tr -d '\r\n')
     printf '\033]1337;SetUserVar=terminal_dotfiles_state=%s\007' "$encoded"
   }
   _terminal_dotfiles_kubie_title() {
-    local previous_status=$?
+    local previous_status=$? current_context
     _terminal_dotfiles_kube_label=''
+    _terminal_dotfiles_kube_env=''
     if [[ -n ${KUBIE_ACTIVE-} ]] && command -v starship >/dev/null 2>&1; then
       _terminal_dotfiles_kube_label=$(command starship module kubernetes 2>/dev/null)
+      if [[ -n $_terminal_dotfiles_kube_label && ${KUBECONFIG-} == "${KUBIE_KUBECONFIG:-${KUBECONFIG-}}" ]] &&
+         current_context=$(command kubie info ctx 2>/dev/null); then
+        case $current_context in
+          dev:?*|dev/?*) _terminal_dotfiles_kube_env=DEV ;;
+          test:?*|test/?*) _terminal_dotfiles_kube_env=TEST ;;
+          prod:?*|prod/?*) _terminal_dotfiles_kube_env=PROD ;;
+          ?*) _terminal_dotfiles_kube_env='?ENV' ;;
+        esac
+      fi
     fi
     _terminal_dotfiles_publish_state prompt
     return "$previous_status"

@@ -94,7 +94,7 @@ Within a Kubie session, Starship shows the short cluster name and namespace befo
 
 The tab bar uses a flat layout with gaps, a high-contrast active tab, numbers, and compact titles. Use `Command/Super+1…9` to jump to a tab by number, `Command/Super+P` to open the tab list, and `Command/Super+Shift+T` to name the session. On Ubuntu, use `Ctrl+Shift+1…9` to jump to a tab and `Ctrl+Shift+Left/Right` to move between adjacent tabs. The numbered shortcuts override Kitty's pane shortcuts on Ubuntu. [Ubuntu GNOME (Russian)](docs/ubuntu-24.04-gnome.md) · [Ubuntu KDE (Russian)](docs/ubuntu-24.04-kde.md).
 
-Tab titles retain the directory while a program runs (for example, `project htop`), include the host and command reported by the server over SSH, and reuse the prompt's Kubernetes format. Starship separates context from the input line and shows Git status counters. [Appearance and prompt options (Russian)](docs/appearance.md) · [Kitty tab settings (Russian)](docs/kitty-tabs.md).
+Tab titles retain the directory while a program runs (for example, `project htop`) and include the host and command reported by the server over SSH. Kubie tabs show a colored `DEV`, `TEST`, `PROD`, or `?ENV` badge before the cluster and namespace. Starship separates context from the input line and shows Git status counters. [Appearance and prompt options (Russian)](docs/appearance.md) · [Kitty tab settings (Russian)](docs/kitty-tabs.md).
 
 ### Kitty network panel
 
