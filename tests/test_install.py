@@ -254,6 +254,40 @@ class InstallerTests(unittest.TestCase):
         kitty_config = ".config/kitty/kitty.conf"
         self.assertEqual((self.home / kitty_config).read_text(), ORIGINALS[kitty_config])
 
+    def test_rollback_preserves_a_file_that_replaces_an_installed_link(self):
+        self.write_originals()
+        rc = self.home / ".zshrc"
+        replacement = self.work / "replacement rc"
+        replacement.write_text("replacement configuration\n")
+        replacement_inode = replacement.stat().st_ino
+        bin_dir = self.fail_stow_after_apply()
+        for program in ("rm", "perl"):
+            wrapper = bin_dir / program
+            executable = shlex.quote(shutil.which(program))
+            wrapper.write_text(
+                "#!/bin/sh\n"
+                "previous=\n"
+                "last=\n"
+                'for argument do previous=$last; last=$argument; done\n'
+                f'target={shlex.quote(str(rc))}\n'
+                'if { [ "$previous" = "$target" ] || [ "$last" = "$target" ]; } && [ -L "$target" ]; then\n'
+                f'  mv -f {shlex.quote(str(replacement))} "$target" || exit $?\n'
+                "fi\n"
+                f'exec {executable} "$@"\n'
+            )
+            wrapper.chmod(0o755)
+
+        install = self.run_installer("install.sh", "--migrate")
+        self.assertEqual(install.returncode, 42, install.stderr)
+        self.assertFalse(replacement.exists())
+        self.assertFalse(rc.is_symlink())
+        self.assertEqual(rc.read_text(), "replacement configuration\n")
+        self.assertEqual(rc.stat().st_ino, replacement_inode)
+        backup, = self.backups()
+        self.assertEqual((backup / rc.name).read_text(), ORIGINALS[rc.name])
+        self.assertIn(str(backup), install.stderr)
+        self.assertFalse(list(self.home.rglob(".terminal-dotfiles-rollback.*")))
+
     def test_bash_rejects_simulated_success_and_restores_original(self):
         bashrc = self.home / ".bashrc"
         bashrc.write_text("previous bash configuration\n")

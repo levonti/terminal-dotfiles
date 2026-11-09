@@ -95,6 +95,35 @@ restore_backup() {
   ' -- "$1" "$2"
 }
 
+remove_installed_link() {
+  # Move the entry to a private directory before deciding whether to delete it.
+  perl -MErrno=ENOENT -MFile::Basename=basename,dirname -MFile::Temp=tempdir -e '
+    my ($target, $source) = @ARGV;
+    my $parent = dirname($target);
+    my $name = basename($target);
+    chdir($parent) or die "Cannot enter $parent for rollback: $!\n";
+    my $stage = tempdir(".terminal-dotfiles-rollback.XXXXXXXX", DIR => ".", CLEANUP => 0);
+    my $saved = "$stage/entry";
+    unless (rename($name, $saved)) {
+      my ($missing, $error) = ($! == ENOENT, "$!");
+      rmdir($stage) or warn "Cannot remove $parent/$stage: $!\n";
+      exit 0 if $missing;
+      die "Cannot stage $target for rollback: $error\n";
+    }
+
+    # Interpret relative link targets from the original parent directory.
+    my $link = readlink($saved);
+    my @referent = defined($link) ? stat($link) : ();
+    my @expected = stat($source);
+    unless (@referent && @expected && $referent[0] == $expected[0] && $referent[1] == $expected[1]) {
+      my $restored = defined($link) ? symlink($link, $name) : link($saved, $name);
+      $restored or die "Cannot return $target: $!; saved at $parent/$saved\n";
+    }
+    unlink($saved) or die "Cannot remove staging entry $parent/$saved: $!\n";
+    rmdir($stage) or warn "Cannot remove $parent/$stage: $!\n";
+  ' -- "$1" "$2"
+}
+
 rollback() {
   if [ "$applying" -eq 1 ]; then
     for entry in $pending; do
@@ -102,7 +131,7 @@ rollback() {
       if ! safe_parents "$relative"; then
         printf 'Cannot roll back %s: a parent is now a symlink.\n' "$target_home/$relative" >&2
       elif installed_link "$entry"; then
-        rm "$target_home/$relative"
+        remove_installed_link "$target_home/$relative" "$repo_dir/$entry"
       fi
     done
     for dir in $new_dirs; do
