@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    name: Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the PR merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends htop shellcheck stow zsh
+
+      - name: Run ShellCheck
+        run: shellcheck scripts/*.sh
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.7"
+          enable-cache: false
+
+      - name: Install Starship and Kubie for the integration tests
+        run: |
+          tools_dir="$RUNNER_TEMP/terminal-dotfiles-tools"
+          mkdir -p "$tools_dir"
+          cd "$tools_dir"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output starship.tar.gz \
+            https://github.com/starship/starship/releases/download/v1.26.0/starship-x86_64-unknown-linux-musl.tar.gz
+          curl --fail --silent --show-error --location --retry 3 \
+            --output kubie \
+            https://github.com/kubie-org/kubie/releases/download/v0.28.0/kubie-linux-amd64
+          sha256sum --check --strict <<'SHA256'
+          b7c232b0e8249d8e55a40beb79c5c43a7d370f3f9408bd215deb0170daeaadf3  starship.tar.gz
+          73c33bf140e3a6bf4cb603c371d1189f5bcce85ccc4e48fcfef9cd64642ffead  kubie
+          SHA256
+          tar -xzf starship.tar.gz starship
+          chmod +x kubie
+          printf '%s\n' "$tools_dir" >> "$GITHUB_PATH"
+
+      - name: Run the test suite
+        run: |
+          uv venv --offline --python /usr/bin/python3 "$RUNNER_TEMP/terminal-dotfiles-venv"
+          "$RUNNER_TEMP/terminal-dotfiles-venv/bin/python" -B -m unittest discover -s tests -v

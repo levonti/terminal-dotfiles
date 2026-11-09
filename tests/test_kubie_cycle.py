@@ -47,8 +47,11 @@ class RealKubieCycleTests(unittest.TestCase):
                 "- name: prod:fixture\n  context:\n    cluster: fixture\n    user: fixture\n    namespace: app\n"
                 "clusters:\n- name: fixture\n  cluster:\n    server: https://example.invalid\n"
                 "users:\n- name: fixture\n  user: {}\n")
+            # Ignore insecure completion directories without prompting in the PTY.
             (fixture / ".zshrc").write_text(
+                "alias compinit='compinit -i'\n"
                 f"source {shlex.quote(str(ROOT / 'zsh/.zshrc'))}\n"
+                "unalias compinit\n"
                 "function _fixture_ready() {\n"
                 "  if [[ $PS1 != *fixture-ready* ]]; then PS1+=$'%{\\e]777;fixture-ready;'\"$$\"$'\\a%}'; fi\n"
                 "  return 0\n}\n"
@@ -57,9 +60,11 @@ class RealKubieCycleTests(unittest.TestCase):
                                       *os.defpath.split(os.pathsep), "/usr/sbin", "/sbin"]))
             # HOME is scoped to the spawned test process only. Kubie's settings,
             # namespace history, shell rc files and htop settings stay disposable.
+            # Kubie sources Ubuntu's global zshrc again in the nested shell.
             env = dict(HOME=str(fixture), PATH=os.pathsep.join(path), SHELL=TOOLS["zsh"],
                        TERM="xterm-256color", LANG="en_US.UTF-8", KITTY_WINDOW_ID="42", KITTY_PID="1",
-                       STARSHIP_CONFIG=str(ROOT / "starship/.config/starship.toml"), HTOPRC=str(fixture / "htoprc"))
+                       STARSHIP_CONFIG=str(ROOT / "starship/.config/starship.toml"),
+                       HTOPRC=str(fixture / "htoprc"), skip_global_compinit="1")
             integration = Path("/Applications/kitty.app/Contents/Resources/kitty/shell-integration/zsh")
             if (integration / ".zshenv").exists():
                 # Match Kitty's initial launch. Kubie then starts its own shell
@@ -93,7 +98,7 @@ class RealKubieCycleTests(unittest.TestCase):
                             if titles:
                                 native_title = titles[-1].decode()
                             return output.decode(errors="replace")
-                self.fail(f"No {kind} state in the isolated Kubie PTY")
+                self.fail(f"No {kind} state in the isolated Kubie PTY. Output tail: {output[-1500:]!r}")
 
             def render(expected, prompt_output=None, htop=False):
                 group = os.tcgetpgrp(fd)
@@ -128,7 +133,7 @@ class RealKubieCycleTests(unittest.TestCase):
                 os.write(fd, b"kubie ctx -n app\n")
                 render("[☸ fixture::app] project", wait_for("prompt"))
                 for iteration in range(2):
-                    os.write(fd, b"htop --readonly --no-meters --no-function-bar --pid $$\n")
+                    os.write(fd, b"htop --readonly --pid $$\n")
                     wait_for("tui")
                     render("[☸ fixture::app] project htop", htop=True)
                     os.write(fd, b"q")

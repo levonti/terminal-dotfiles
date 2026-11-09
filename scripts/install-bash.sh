@@ -2,7 +2,7 @@
 # Install the same Bash prompt on macOS and Linux without discarding ~/.bashrc.
 set -eu
 
-repo_dir=$(CDPATH= cd "$(dirname "$0")/.." && pwd -P)
+repo_dir=$(CDPATH='' cd "$(dirname "$0")/.." && pwd -P)
 target_home=${HOME:?HOME is required}
 rc="$target_home/.bashrc"
 local_rc="$target_home/.bashrc.local"
@@ -35,6 +35,13 @@ fi
 
 stow --dir="$repo_dir" --no-folding --simulate --verbose --target="$target_home" bash
 stow --dir="$repo_dir" --no-folding --target="$target_home" bash
+
+# dash and Bash support -ef for checking the symlink's target.
+# shellcheck disable=SC3013
+if [ ! -L "$rc" ] || [ ! "$rc" -ef "$repo_dir/bash/.bashrc" ]; then
+  printf '%s\n' 'Stow did not create the expected ~/.bashrc symlink. Check .stowrc for simulation or ignore options.' >&2
+  exit 1
+fi
 
 moved=0
 trap - 0

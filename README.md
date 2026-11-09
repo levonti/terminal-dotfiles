@@ -1,67 +1,105 @@
 # Terminal dotfiles
 
-Общая конфигурация Kitty, zsh, Bash, Starship и zoxide для macOS, Ubuntu 24.04 GNOME, Ubuntu 24.04 KDE Plasma и Debian 13 KDE Plasma. Цель — одинаковые prompt, цвета, шрифт и сочетания клавиш внутри терминала на разных устройствах.
+**English** · [Русский](README.ru.md)
 
-## Состав
+[Clean install](#install-on-a-clean-system) · [Ubuntu migration](#migrate-an-existing-ubuntu-2404-setup) · [Local overrides](#local-overrides)
 
-| Пакет Stow | Файл в домашнем каталоге | Назначение |
+Shared configuration for Kitty, Zsh, Bash, Starship, and zoxide on macOS, Ubuntu 24.04 with GNOME or KDE Plasma, and Debian 13 with KDE Plasma. The setup gives you the same prompt, colors, font, and terminal shortcuts across machines.
+
+## What's included
+
+| Stow package | Path in your home directory | Purpose |
 | --- | --- | --- |
-| `zsh` | `~/.zshrc`, `~/.config/terminal-dotfiles/ssh.zsh` | completion, zoxide, Starship, совместимый SSH и два необязательных локальных файла |
-| `bash` | `~/.bashrc` | Starship, zoxide и совместимый SSH для интерактивного Bash, приватные настройки в `~/.bashrc.local` |
-| `kitty` | `~/.config/kitty/kitty.conf`, `~/.config/kitty/tab_bar.py` | внешний вид, вкладки, окна и сочетания `Command`/`Super` |
-| `starship` | `~/.config/starship.toml` | общий prompt |
+| `zsh` | `~/.zshrc`, `~/.config/terminal-dotfiles/ssh.zsh` | Completion, zoxide, Starship, SSH compatibility, and two optional local override files |
+| `bash` | `~/.bashrc` | Starship, zoxide, and SSH compatibility in interactive Bash, with private settings in `~/.bashrc.local` |
+| `kitty` | `~/.config/kitty/kitty.conf`, `~/.config/kitty/tab_bar.py` | Appearance, tabs, windows, and `Command`/`Super` shortcuts |
+| `starship` | `~/.config/starship.toml` | Shared prompt |
 
-zoxide использует стандартные команды `z` и `zi`; для интерактивной команды `zi` устанавливается fzf. База посещённых каталогов создаётся на каждом устройстве отдельно. Oh My Zsh, Powerlevel10k и autojump не нужны.
+zoxide provides `z` and `zi`. Install fzf for interactive selection with `zi`. Each machine keeps its own database of visited directories. You can use the setup without Oh My Zsh, Powerlevel10k, or autojump.
 
-## Установка с чистого устройства
+## Install on a clean system
 
-Сначала выполните инструкцию для [macOS](docs/macos.md), [Ubuntu GNOME](docs/ubuntu-24.04-gnome.md), [Ubuntu KDE](docs/ubuntu-24.04-kde.md) или [Debian KDE](docs/debian-13-kde.md). Она устанавливает Git, Stow, Kitty, Starship, zoxide, fzf, плагины zsh и шрифт. Затем на том же устройстве выполните:
+Follow the guide for your platform to install Git, GNU Stow, Kitty, Starship, zoxide, fzf, the Zsh plugins, and the font. The linked platform guides and the rest of the project documentation are in Russian.
+
+[macOS](docs/macos.md) · [Ubuntu GNOME](docs/ubuntu-24.04-gnome.md) · [Ubuntu KDE](docs/ubuntu-24.04-kde.md) · [Debian KDE](docs/debian-13-kde.md)
+
+Run these commands on the same machine after installing the prerequisites.
 
 ```sh
 mkdir -p "$HOME/work/github.com/levonti"
 git clone https://github.com/levonti/terminal-dotfiles.git "$HOME/work/github.com/levonti/terminal-dotfiles"
 cd "$HOME/work/github.com/levonti/terminal-dotfiles"
-stow --no-folding --simulate --verbose --target="$HOME" zsh kitty starship
-stow --no-folding --target="$HOME" zsh kitty starship
-sh scripts/install-bash.sh
+stow --no-folding --simulate --verbose --target="$HOME" zsh kitty starship &&
+  stow --no-folding --target="$HOME" zsh kitty starship &&
+  sh scripts/install-bash.sh
 ```
 
-На действительно чистом устройстве базовый Stow создаст пять ссылок, а Bash-установщик — шестую. Если один из путей базового пакета уже занят обычным файлом, сохраните его отдельно и повторите Stow; он не перезаписывает такой файл молча. Личные `~/.zshrc.local`, `~/.zshrc.local.post` и `~/.config/kitty/kitty.local.conf` оставьте на месте.
+Stow creates five symlinks on a clean system, and the Bash installer adds a sixth. To migrate existing configuration files on Ubuntu 24.04, use the [migration instructions](#migrate-an-existing-ubuntu-2404-setup).
 
-`--no-folding` оставляет каталоги в `$HOME` обычными каталогами: рядом с общими ссылками можно хранить приватные файлы. [Руководство GNU Stow](https://www.gnu.org/software/stow/manual/stow.html).
+`--no-folding` keeps directories in `$HOME` as ordinary directories, so you can store private files alongside the managed symlinks. [GNU Stow manual](https://www.gnu.org/software/stow/manual/stow.html).
 
-После установки запустите `zsh -l` и проверьте `starship --version`, `zoxide --version`, `fzf --version`, `type z` и `type zi`. Затем запустите `bash`: в нём должны быть метка `bash`, команды `z` и `zi`; вернитесь командой `exit`. Проверьте версию Kitty по платформенной инструкции. Если shell по умолчанию ещё не zsh, выполните шаг смены shell в инструкции платформы и войдите в систему заново.
+Start `zsh -l` and run `starship --version`, `zoxide --version`, `fzf --version`, `type z`, and `type zi`. Then start `bash` and check that the prompt shows the `bash` label and that `z` and `zi` are still available. Run `exit` to return to Zsh. Check the Kitty version as described in the platform guide. If Zsh is already installed and your default shell is different, follow the guide's shell change step and log in again.
 
-Для получения обновлений выполните `git pull --ff-only` в клоне. Stow создаёт ссылки, поэтому повторять установку при изменении существующих файлов не нужно. Для новых файлов или пакетов выполните Stow ещё раз. Изменения публикуются обычным commit и push.
+To update, run `git pull --ff-only` in the clone. The existing symlinks pick up changes to the files they point to. Run Stow again when the repository adds files or packages. Publish your own shared changes with Git commits and pushes.
 
-### Bash на macOS и Linux
+## Migrate an existing Ubuntu 24.04 setup
 
-Установщик `scripts/install-bash.sh` подключает один и тот же пакет Bash на macOS, Ubuntu и Debian. Если обычный `~/.bashrc` уже есть, он переносит его в `~/.bashrc.local`, а затем создаёт ссылку на общий конфиг. Приватный файл читается до инициализации zoxide и Starship. При наличии одновременно `~/.bashrc` и `~/.bashrc.local` установщик останавливается и ничего не перезаписывает. Повторный запуск при уже установленной ссылке безопасен.
+If Stow is missing, install it with `sudo apt install stow`. Preview the plan from the root of the clone.
 
-После переноса проверьте `~/.bashrc.local`: если в нём уже запускались Starship или zoxide, уберите дублирующую инициализацию. Интерактивный Bash без входа в систему читает `~/.bashrc`; для Bash с `--login` существующий `~/.bash_profile` должен также подключать `~/.bashrc` при необходимости. [Правила запуска Bash](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html).
+```sh
+sh scripts/install.sh --check
+```
 
-Левая часть prompt, включая метку оболочки, общая. Правая часть `right_format` в Bash требует Ble.sh версии 0.4 или новее и без него не отображается. [Документация Starship](https://starship.rs/advanced-config/#enable-right-prompt).
+The preview lists files to back up, links to create, and configs already linked. The installer stops when a target path holds a symlink to another location, a broken symlink, or a directory where a file is expected. It also stops when a parent directory is a symlink. For each path it will change, it checks write and search permissions on the nearest existing parent directory.
 
-## Локальные переопределения
+The installer targets `~/.zshrc` and `~/.config/kitty`. If `ZDOTDIR` or `KITTY_CONFIG_DIRECTORY` points elsewhere, or Kitty finds a different `kitty.conf` through `XDG_CONFIG_HOME`, the installer prints both paths and stops. Run it with the same environment as Zsh and Kitty. If you set `ZDOTDIR` only inside Zsh, export it before running the check. If you start Kitty with `--config`, compare that path with `~/.config/kitty/kitty.conf`. You can use `STARSHIP_CONFIG` as a local Starship override.
 
-Общий `.zshrc` сначала добавляет стандартные каталоги пользовательских бинарников и Homebrew в `PATH`, затем читает `~/.zshrc.local` перед инициализацией инструментов и `~/.zshrc.local.post` после основных настроек. Общий `.bashrc` читает `~/.bashrc.local` перед zoxide и Starship. Kitty в конце читает необязательный `~/.config/kitty/kitty.local.conf`. Для Starship возможна полная локальная замена через `STARSHIP_CONFIG`. Подробности: [локальные переопределения](docs/local-overrides.md).
+Apply the migration once the check passes.
 
-## Kubernetes в zsh
+```sh
+sh scripts/install.sh --migrate
+```
 
-Опциональный Kubie изолирует контекст и namespace между вкладками и читает отдельные kubeconfig из `~/.kube/configs/`. В каждой вкладке контекст выбирается отдельно через `kubie ctx`; меню показывает короткие имена `<env>:<cluster>`. Starship показывает короткое имя кластера и namespace перед путём и Git только внутри сессии Kubie. Значок `☸` зелёный для dev, жёлтый для test, красный для production; у production нет дополнительной текстовой метки. В стартовой оболочке индикатор скрыт. Структура каталогов, установка и проверка описаны в [руководстве по Kubie](docs/kubie.md).
+The installer reruns the checks and moves conflicting Zsh, Kitty, and Starship files into a new private `~/.terminal-dotfiles-backup.*` directory, preserving their relative paths. It also backs up a regular `~/.zshrc.zwc` file so Zsh loads the shared `.zshrc`. It then runs Stow in simulation mode, applies the plan, and verifies all five symlinks.
 
-## Вкладки Kitty
+If a step fails, the installer removes the links created in that run and restores the originals, including `.zshrc.zwc`. If it cannot restore a file, it leaves the file in the backup and prints the backup path. Rerunning a successful migration preserves existing links and backups.
 
-Плоская панель с зазорами, контрастной активной вкладкой, номерами и компактными названиями. `Command/Super+1…9` переключает вкладки по номеру, `Command/Super+P` открывает список, `Command/Super+Shift+T` задаёт имя сессии. Подписи сохраняют каталог при запуске программы (`project htop`), добавляют сообщённые сервером хост и команду для SSH и используют формат Kubernetes из prompt. Starship отделяет контекст от ввода команды и показывает Git-статус со счётчиками. [Оценка всего окна и варианты prompt](docs/appearance.md), [настройки вкладок](docs/kitty-tabs.md).
+Compare the saved configs with the shared ones and merge the settings you want to keep into your local override files. To install Bash, run `sh scripts/install-bash.sh` separately. [Local overrides](#local-overrides).
 
-Для Kitty можно отдельно включить [графики входящего и исходящего трафика](docs/network-panel.md) в локальном конфиге.
+## Bash on macOS and Linux
 
-## SSH из Kitty
+`scripts/install-bash.sh` installs the same Bash package on macOS, Ubuntu, and Debian. If a regular `~/.bashrc` exists, the installer moves it to `~/.bashrc.local` and creates a link to the shared config. The shared config sources the local file before initializing zoxide and Starship. If both a regular `~/.bashrc` and `~/.bashrc.local` exist, the installer stops. You can safely rerun it once the shared link is in place.
 
-Обычная команда `ssh` в интерактивных Zsh и Bash автоматически использует `TERM=xterm-256color` для всех хостов. При последовательных SSH-подключениях этот тип терминала передаётся дальше, если промежуточный хост его не переопределяет. Локальный Kitty сохраняет свой `TERM`; маски управляемых хостов больше не используются. Подробности и проверка описаны в [руководстве по SSH](docs/ssh.md).
+The first Stow pass runs in simulation mode, so its simulation warning is expected. The installer reports success after verifying the `~/.bashrc` link. If `.stowrc` enables simulation and the link is missing, the installer restores the original `.bashrc` and exits with an error.
 
-Приватные файлы, историю shell, базу zoxide, ключи и токены не добавляйте в публичный репозиторий. Файлы в `examples/` содержат только безопасные образцы.
+Review `~/.bashrc.local` after migration and remove any duplicate Starship or zoxide initialization. Interactive non-login Bash reads `~/.bashrc`. If you start Bash with `--login`, arrange for your existing `~/.bash_profile` to source `~/.bashrc` when needed. [Bash startup files](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html).
 
-## Проверка совместимости
+Bash uses the shared left prompt, including the shell label. Displaying Starship's `right_format` in Bash requires Ble.sh 0.4 or later. [Starship documentation](https://starship.rs/advanced-config/#enable-right-prompt).
 
-[Версии](docs/versions.md) фиксируют проверенную конфигурацию Mac и версии, используемые инструкцией чистой установки. Linux пока не проверялся на самих целевых устройствах. На GNOME и KDE глобальные сочетания `Super` могут перехватываться до Kitty; соответствующие настройки среды описаны в инструкциях по платформам. [Сочетания Kitty](docs/keybindings.md).
+## Local overrides
+
+The shared `.zshrc` adds the standard user and Homebrew binary directories to `PATH`. It then sources `~/.zshrc.local` before initializing tools and `~/.zshrc.local.post` after the main settings. The shared `.bashrc` sources `~/.bashrc.local` before initializing zoxide and Starship. Kitty loads the optional `~/.config/kitty/kitty.local.conf` at the end of its config. Set `STARSHIP_CONFIG` to use a complete local Starship config. [Local overrides guide (Russian)](docs/local-overrides.md).
+
+## Kubernetes in Zsh
+
+Optional Kubie keeps Kubernetes contexts and namespaces separate across tabs and reads individual kubeconfigs from `~/.kube/configs/`. Select a context in each tab with `kubie ctx`. The menu shows short names in the form `<env>:<cluster>`.
+
+Within a Kubie session, Starship shows the short cluster name and namespace before the current path and Git status. The `☸` icon is green for dev, yellow for test, and red for production. Production uses the red icon without an extra environment label. The indicator stays hidden in the initial shell. [Kubie setup and verification guide (Russian)](docs/kubie.md).
+
+## Kitty tabs
+
+The tab bar uses a flat layout with gaps, a high-contrast active tab, numbers, and compact titles. Use `Command/Super+1…9` to jump to a tab by number, `Command/Super+P` to open the tab list, and `Command/Super+Shift+T` to name the session.
+
+Tab titles retain the directory while a program runs (for example, `project htop`), include the host and command reported by the server over SSH, and reuse the prompt's Kubernetes format. Starship separates context from the input line and shows Git status counters. [Appearance and prompt options (Russian)](docs/appearance.md) · [Kitty tab settings (Russian)](docs/kitty-tabs.md).
+
+You can enable inbound and outbound network charts in the local Kitty config. [Network panel guide (Russian)](docs/network-panel.md).
+
+## SSH from Kitty
+
+In interactive Zsh and Bash, the regular `ssh` command uses `TERM=xterm-256color` for every host. On nested SSH connections, each hop inherits that terminal type unless an intermediate host overrides it. Kitty keeps its own local `TERM`. [SSH setup and verification guide (Russian)](docs/ssh.md).
+
+Keep private configs, shell history, the zoxide database, keys, and tokens outside the public repository. The `examples/` directory contains safe sample files.
+
+## Compatibility and testing
+
+The version list records the verified macOS setup and the versions used in the clean-install guides. The target Linux distributions still need on-device validation. GNOME and KDE may capture global `Super` shortcuts before Kitty receives them. See the platform guides for the corresponding desktop settings. [Versions (Russian)](docs/versions.md) · [Kitty shortcuts (Russian)](docs/keybindings.md).
