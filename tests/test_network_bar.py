@@ -11,12 +11,13 @@ import tab_bar as net
 
 
 class NetworkTests(unittest.TestCase):
-    def test_geninclude_emits_defaults_only_on_ubuntu_24_04(self):
-        enabled = ["tab_bar_style custom", "tab_bar_min_tabs 1"]
-        enabled.extend(f"map --allow-fallback=shifted,ascii ctrl+alt+{n} goto_tab {n}" for n in range(1, 10))
+    def test_geninclude_enables_ubuntu_tab_shortcuts_and_24_04_panel(self):
+        panel = ["tab_bar_style custom", "tab_bar_min_tabs 1"]
+        shortcuts = [f"map --allow-fallback=shifted,ascii ctrl+shift+{n} goto_tab {n}" for n in range(1, 10)]
         for platform, release, expected in (
-            ("linux", {"ID": "ubuntu", "VERSION_ID": "24.04"}, enabled),
-            ("linux", {"ID": "ubuntu", "VERSION_ID": "22.04"}, []),
+            ("linux", {"ID": "ubuntu", "VERSION_ID": "24.04"}, panel + shortcuts),
+            ("linux", {"ID": "ubuntu", "VERSION_ID": "22.04"}, shortcuts),
+            ("linux", {"ID": "ubuntu", "VERSION_ID": "26.04"}, shortcuts),
             ("linux", {"ID": "debian", "VERSION_ID": "24.04"}, []),
             ("linux", OSError("missing os-release"), []),
             ("darwin", {}, []),

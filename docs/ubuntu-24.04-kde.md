@@ -4,6 +4,6 @@
 
 В «Параметры системы → Комбинации клавиш» KDE Plasma проверьте сочетания из [таблицы](keybindings.md), прежде всего `Super+Left/Right`. При конфликте измените системное действие, чтобы Kitty получал ту же клавишу, что на Mac.
 
-Для перехода по номерам вкладок в Kitty используйте `Ctrl+Alt+1…9`. Чтобы использовать `Super+1…9`, найдите в комбинациях клавиш Plasma действия `Activate Task Manager Entry 1` … `Activate Task Manager Entry 9` и снимите с них `Meta+1…9`.
+Для перехода по номерам вкладок в Kitty используйте `Ctrl+Shift+1…9`. Чтобы использовать `Super+1…9`, найдите в комбинациях клавиш Plasma действия `Activate Task Manager Entry 1` … `Activate Task Manager Entry 9` и снимите с них `Meta+1…9`.
 
 Личные PATH, алиасы и исключения для этого устройства храните в [локальных файлах](local-overrides.md).

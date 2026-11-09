@@ -4,7 +4,7 @@
 
 В настройках клавиатуры GNOME проверьте системные сочетания `Super+T`, `Super+N`, `Super+W`, `Super+Left/Right` и другие из [таблицы](keybindings.md). Если GNOME перехватывает нужное сочетание, измените системное действие, чтобы событие дошло до Kitty.
 
-Для перехода по номерам вкладок в Kitty используйте `Ctrl+Alt+1…9`. Чтобы использовать `Super+1…9`, освободите эти сочетания в GNOME Shell и Ubuntu Dock. Следующие команды отключают соответствующие системные сочетания запуска и переключения приложений для текущего пользователя. [GNOME Shell](https://github.com/GNOME/gnome-shell/blob/46.0/data/org.gnome.shell.gschema.xml.in) · [Dash to Dock](https://github.com/micheleg/dash-to-dock/blob/master/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml).
+Для перехода по номерам вкладок в Kitty используйте `Ctrl+Shift+1…9`. Чтобы использовать `Super+1…9`, освободите эти сочетания в GNOME Shell и Ubuntu Dock. Следующие команды отключают соответствующие системные сочетания запуска и переключения приложений для текущего пользователя. [GNOME Shell](https://github.com/GNOME/gnome-shell/blob/46.0/data/org.gnome.shell.gschema.xml.in) · [Dash to Dock](https://github.com/micheleg/dash-to-dock/blob/master/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml).
 
 ```sh
 for number in 1 2 3 4 5 6 7 8 9; do
