@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 STOW = shutil.which("stow")
+ZSH = shutil.which("zsh")
 MANAGED = {
     ".zshrc": "zsh/.zshrc",
     ".config/terminal-dotfiles/ssh.zsh": "zsh/.config/terminal-dotfiles/ssh.zsh",
@@ -34,6 +35,8 @@ class InstallerTests(unittest.TestCase):
         self.home = self.work / "home"
         self.home.mkdir()
         self.env = dict(os.environ, HOME=str(self.home))
+        for variable in ("ZDOTDIR", "KITTY_CONFIG_DIRECTORY", "XDG_CONFIG_HOME", "KITTY_WINDOW_ID"):
+            self.env.pop(variable, None)
 
     def write_originals(self):
         for relative, contents in ORIGINALS.items():
@@ -99,8 +102,100 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(self.backups())
         self.assertEqual((self.home / ".zshrc").read_text(), ORIGINALS[".zshrc"])
 
+    @unittest.skipUnless(ZSH, "Zsh is required to exercise compiled startup files")
+    def test_migration_backs_up_compiled_rc_and_zsh_loads_shared_config(self):
+        rc = self.home / ".zshrc"
+        compiled = self.home / ".zshrc.zwc"
+        rc.write_text("typeset -g INSTALL_TEST_RC=compiled\n")
+        subprocess.run(
+            [ZSH, "-fc", 'zcompile "$1" "$2"', "zsh", str(compiled), str(rc)],
+            env=self.env,
+            check=True,
+            timeout=10,
+        )
+        rc.write_text(ORIGINALS[".zshrc"])
+        newer = max(compiled.stat().st_mtime, (ROOT / "zsh/.zshrc").stat().st_mtime) + 10
+        os.utime(compiled, (newer, newer))
+        compiled_contents = compiled.read_bytes()
+        self.env["TERM"] = "xterm-256color"
+
+        def start_zsh(command):
+            result = subprocess.run(
+                [ZSH, "-ic", command], cwd=self.work, env=self.env,
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        start_zsh('[[ ${INSTALL_TEST_RC-} == compiled ]]')
+        preview = self.run_installer("install.sh", "--check")
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertIn(str(compiled), preview.stdout)
+        self.assertEqual(compiled.read_bytes(), compiled_contents)
+
+        install = self.run_installer("install.sh", "--migrate")
+        self.assertEqual(install.returncode, 0, install.stderr)
+        backup, = self.backups()
+        self.assertEqual((backup / compiled.name).read_bytes(), compiled_contents)
+        self.assertFalse(compiled.exists())
+        start_zsh('[[ -z ${INSTALL_TEST_RC-} && ${aliases[k]-} == kubectl ]]')
+
+    def test_alternate_zsh_and_kitty_directories_block_migration(self):
+        self.write_originals()
+        xdg_kitty = self.home / "xdg/kitty"
+        xdg_kitty.mkdir(parents=True)
+        (xdg_kitty / "kitty.conf").write_text("existing configuration\n")
+        original_env = self.env.copy()
+
+        for variable, value, expected, active in (
+            ("ZDOTDIR", self.work, self.home, self.work),
+            ("KITTY_CONFIG_DIRECTORY", self.work, self.home / ".config/kitty", self.work),
+            ("XDG_CONFIG_HOME", "~/xdg", self.home / ".config/kitty", xdg_kitty),
+        ):
+            self.env = dict(original_env, **{variable: str(value)})
+            for mode in ("--check", "--migrate"):
+                with self.subTest(variable=variable, mode=mode):
+                    result = self.run_installer("install.sh", mode)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(variable, result.stderr)
+                    self.assertIn(str(expected), result.stderr)
+                    self.assertIn(str(active), result.stderr)
+                    self.assertEqual((self.home / ".zshrc").read_text(), ORIGINALS[".zshrc"])
+                    self.assertFalse(self.backups())
+
+    def test_check_accepts_default_config_paths(self):
+        self.env.update(ZDOTDIR=str(self.home), XDG_CONFIG_HOME=str(self.work / "xdg"))
+        result = self.run_installer("install.sh", "--check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        xdg_kitty = self.work / "xdg/kitty"
+        xdg_kitty.mkdir(parents=True)
+        (xdg_kitty / "kitty.conf").touch()
+        self.env["KITTY_CONFIG_DIRECTORY"] = "~/.config/kitty/"
+        result = self.run_installer("install.sh", "--check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_read_only_parent_fails_before_moving_originals(self):
+        self.write_originals()
+        for relative in (".config/kitty", ".config"):
+            directory = self.home / relative
+            directory.chmod(0o500)
+            try:
+                if os.access(directory, os.W_OK):
+                    self.skipTest("Current user can write to a mode-0500 directory")
+                for mode in ("--check", "--migrate"):
+                    with self.subTest(directory=relative, mode=mode):
+                        result = self.run_installer("install.sh", mode)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(f"Need write and search permissions on {directory}", result.stderr)
+                        self.assertEqual((self.home / ".zshrc").read_text(), ORIGINALS[".zshrc"])
+                        self.assertFalse(self.backups())
+            finally:
+                directory.chmod(0o700)
+
     def test_failed_stow_rolls_back_only_this_run(self):
         self.write_originals()
+        compiled = self.home / ".zshrc.zwc"
+        compiled.write_bytes(b"compiled configuration")
         existing = self.home / ".config/kitty/tab_bar.py"
         source = ROOT / MANAGED[".config/kitty/tab_bar.py"]
         existing.symlink_to(source)
@@ -122,6 +217,7 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(path.is_symlink())
             self.assertEqual(path.read_text(), contents)
         self.assertEqual(existing.readlink(), source)
+        self.assertEqual(compiled.read_bytes(), b"compiled configuration")
         self.assertFalse((self.home / ".config/terminal-dotfiles").exists())
         self.assertFalse((self.home / ".terminal-dotfiles-install.lock").exists())
         self.assertFalse(self.backups())
