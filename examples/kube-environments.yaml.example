@@ -9,6 +9,8 @@ environments:
 directory_aliases:
   development: dev
   production: prod
+# context_labels:
+#   'prod:example': example
 overrides: []
 # - source: corp/company/shared.yaml
 #   context: cluster-42
