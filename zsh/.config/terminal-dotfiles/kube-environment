@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+runtime="${HOME}/.local/share/terminal-dotfiles/kube-env-venv/bin/python"
+[ -x "$runtime" ] || exit 0
+exec "$runtime" "${HOME}/.config/terminal-dotfiles/kube_environment.py" "$@"

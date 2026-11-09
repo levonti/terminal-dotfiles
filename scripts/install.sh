@@ -51,7 +51,7 @@ fi
 # Fixed relative paths, so word splitting is intentional. Inspect parents
 # before children and keep unrelated files out of the Stow operation.
 config_dirs='.config .config/kitty .config/terminal-dotfiles'
-managed='zsh/.zshrc zsh/.config/terminal-dotfiles/ssh.zsh kitty/.config/kitty/kitty.conf kitty/.config/kitty/tab_bar.py starship/.config/starship.toml'
+managed='zsh/.zshrc zsh/.config/terminal-dotfiles/ssh.zsh zsh/.config/terminal-dotfiles/kube-environment zsh/.config/terminal-dotfiles/kube_environment.py kitty/.config/kitty/kitty.conf kitty/.config/kitty/tab_bar.py starship/.config/starship.toml'
 compiled_rc="$target_home/.zshrc.zwc"
 pending=
 originals=

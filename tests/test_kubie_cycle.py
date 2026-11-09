@@ -1,3 +1,4 @@
+from kube_fixture import install
 """Exercise real local programs in a PTY, with isolated state and no cluster API."""
 
 import base64
@@ -32,6 +33,7 @@ class RealKubieCycleTests(unittest.TestCase):
     def test_context_htop_exit_namespace_and_reentry(self):
         with TemporaryDirectory(prefix="kitty-kubie-cycle-") as directory:
             fixture = Path(directory)
+            install(fixture)
             (fixture / ".kube").mkdir()
             (fixture / "project").mkdir()
             (fixture / "bin").mkdir()
@@ -41,8 +43,10 @@ class RealKubieCycleTests(unittest.TestCase):
             kubectl.chmod(0o755)
             (fixture / ".kube/kubie.yaml").write_text(
                 f"shell: zsh\nprompt:\n  disable: true\nbehavior:\n  validate_namespaces: false\n"
-                f"configs:\n  include:\n    - {fixture / 'config.yaml'}\n")
-            (fixture / "config.yaml").write_text(
+                f"configs:\n  include:\n    - {fixture / '.kube/configs/lab/prod/config.yaml'}\n")
+            source = fixture / ".kube/configs/lab/prod/config.yaml"
+            source.parent.mkdir(parents=True)
+            source.write_text(
                 "apiVersion: v1\nkind: Config\ncurrent-context: prod:fixture\ncontexts:\n"
                 "- name: prod:fixture\n  context:\n    cluster: fixture\n    user: fixture\n    namespace: app\n"
                 "clusters:\n- name: fixture\n  cluster:\n    server: https://example.invalid\n"
@@ -130,20 +134,20 @@ class RealKubieCycleTests(unittest.TestCase):
                 render("project", wait_for("prompt"))
                 # One fixture context is selected automatically by real `kubie ctx`.
                 os.write(fd, b"kubie ctx -n app\n")
-                render("PROD fixture::app project", wait_for("prompt"), prompt_label="[☸ fixture::app]")
+                render("PROD prod:fixture::app project", wait_for("prompt"), prompt_label="[PROD prod:fixture::app]")
                 for iteration in range(2):
                     os.write(fd, b"htop --readonly --pid $$\n")
                     wait_for("tui")
-                    render("PROD fixture::app project htop", htop=True)
+                    render("PROD prod:fixture::app project htop", htop=True)
                     os.write(fd, b"q")
-                    render("PROD fixture::app project", wait_for("prompt"), prompt_label="[☸ fixture::app]")
+                    render("PROD prod:fixture::app project", wait_for("prompt"), prompt_label="[PROD prod:fixture::app]")
                     os.write(fd, b"kubie ns changed\n")
-                    render("PROD fixture::changed project", wait_for("prompt"), prompt_label="[☸ fixture::changed]")
+                    render("PROD prod:fixture::changed project", wait_for("prompt"), prompt_label="[PROD prod:fixture::changed]")
                     os.write(fd, b"exit\n")
                     render("project", wait_for("prompt"))
                     if iteration == 0:
                         os.write(fd, b"kubie ctx prod:fixture -n app\n")
-                        render("PROD fixture::app project", wait_for("prompt"), prompt_label="[☸ fixture::app]")
+                        render("PROD prod:fixture::app project", wait_for("prompt"), prompt_label="[PROD prod:fixture::app]")
             finally:
                 os.close(fd)
                 try:

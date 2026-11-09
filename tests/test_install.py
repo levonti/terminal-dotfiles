@@ -99,7 +99,7 @@ class InstallerTests(unittest.TestCase):
 
         repeated = self.run_installer("install.sh", "--migrate")
         self.assertEqual(repeated.returncode, 0, repeated.stderr)
-        self.assertEqual(repeated.stdout.count("Already linked:"), 5)
+        self.assertEqual(repeated.stdout.count("Already linked:"), 7)
         self.assertEqual(self.backups(), [backup])
 
     def test_foreign_symlink_blocks_migration_before_backup(self):

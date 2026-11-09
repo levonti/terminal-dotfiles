@@ -54,4 +54,5 @@ jobs:
       - name: Run the test suite
         run: |
           uv venv --offline --python /usr/bin/python3 "$RUNNER_TEMP/terminal-dotfiles-venv"
+          uv pip install --python "$RUNNER_TEMP/terminal-dotfiles-venv/bin/python" PyYAML==6.0.3
           "$RUNNER_TEMP/terminal-dotfiles-venv/bin/python" -B -m unittest discover -s tests -v

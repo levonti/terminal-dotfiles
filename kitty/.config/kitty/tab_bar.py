@@ -396,14 +396,15 @@ def kubernetes_title(state, formatter):
     if not state or not (title := plain_title(state["context"])):
         return ""
     environment = state.get("kube_env")
-    if not isinstance(environment, str) or environment not in KUBE_BADGE_COLORS:
+    color = state.get("kube_color", KUBE_BADGE_COLORS.get(environment) if isinstance(environment, str) else None)
+    if not isinstance(environment, str) or not re.fullmatch(r"[A-Z0-9?_-]{1,12}", environment) or not isinstance(color, str) or not re.fullmatch(r"[0-9a-fA-F]{6}", color):
         return accent_kubernetes_icon(title, formatter, state["context"])
 
     if title.startswith("[☸ ") and title.endswith("]"):
         title = title[3:-1].removeprefix(KUBE_PROMPT_PREFIXES.get(environment, ""))
     badge = environment
     if formatter:
-        background = getattr(formatter.bg, "_" + KUBE_BADGE_COLORS[environment])
+        background = getattr(formatter.bg, "_" + color)
         badge = f"{background}{formatter.fg._171b24}{badge}{formatter.bg.tab}{formatter.fg.tab}"
     return f"{badge} {title}"
 
