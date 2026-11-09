@@ -2,6 +2,7 @@
 # Host-specific PATH and aliases belong in ~/.zshrc.local.
 
 alias k='kubectl'
+alias y='yazi'
 
 # Make user-installed tools and Homebrew visible before initialization.
 typeset -U path
