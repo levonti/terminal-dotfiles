@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlsplit
 
 class InterfaceData64(c.Structure):
     # Public Darwin ABI: net/if_var.h, struct if_data64, packed to 4 bytes.
+    _layout_ = "ms"  # Preserve the layout selected by _pack_ on Python < 3.14.
     _pack_ = 4
     _fields_ = [("metadata", c.c_ubyte * 8), ("mtu", c.c_uint32), ("metric", c.c_uint32),
                 ("baudrate", c.c_uint64), ("packets", c.c_uint64 * 5),
@@ -581,3 +582,18 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
             screen.cursor.fg = (color << 8) | 2
             screen.draw(text)
     return end
+
+
+# Kitty runs geninclude scripts as __main__, separately from loading the tab renderer.
+if __name__ == "__main__" and sys.platform == "linux":
+    from platform import freedesktop_os_release
+
+    try:
+        release = freedesktop_os_release()
+    except OSError:
+        release = {}
+    if release.get("ID") == "ubuntu" and release.get("VERSION_ID") == "24.04":
+        print("tab_bar_style custom\ntab_bar_min_tabs 1")
+        # The desktop can grab Super+number for its app launcher.
+        for number in range(1, 10):
+            print(f"map --allow-fallback=shifted,ascii ctrl+alt+{number} goto_tab {number}")

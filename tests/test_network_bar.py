@@ -1,12 +1,37 @@
-import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
+import runpy
 import sys
 from tempfile import TemporaryDirectory
-from pathlib import Path
+import unittest
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'kitty/.config/kitty'))
 import tab_bar as net
 
 
 class NetworkTests(unittest.TestCase):
+    def test_geninclude_emits_defaults_only_on_ubuntu_24_04(self):
+        enabled = ["tab_bar_style custom", "tab_bar_min_tabs 1"]
+        enabled.extend(f"map --allow-fallback=shifted,ascii ctrl+alt+{n} goto_tab {n}" for n in range(1, 10))
+        for platform, release, expected in (
+            ("linux", {"ID": "ubuntu", "VERSION_ID": "24.04"}, enabled),
+            ("linux", {"ID": "ubuntu", "VERSION_ID": "22.04"}, []),
+            ("linux", {"ID": "debian", "VERSION_ID": "24.04"}, []),
+            ("linux", OSError("missing os-release"), []),
+            ("darwin", {}, []),
+        ):
+            with self.subTest(platform=platform, release=release):
+                output = StringIO()
+                with patch("platform.freedesktop_os_release") as os_release:
+                    if isinstance(release, OSError):
+                        os_release.side_effect = release
+                    else:
+                        os_release.return_value = release
+                    with patch.object(sys, "platform", platform), redirect_stdout(output):
+                        runpy.run_path(net.__file__, run_name="__main__")
+                self.assertEqual(output.getvalue().splitlines(), expected)
+
     def linux_fixture(self, directory, names):
         root = Path(directory)
         proc, devices = root / "proc", root / "devices"

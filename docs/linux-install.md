@@ -40,6 +40,8 @@ fc-match -f '%{family}\n' 'MesloLGS NF'
 
 Установите zoxide 0.9.9 из официального `.deb`, fzf 0.71.0 из официального архива и Starship 1.26.0 в `~/.local/bin`. Пакет fzf в Ubuntu 24.04 имеет версию 0.44, а zoxide требует для `zi` как минимум 0.51; поэтому `apt install fzf` здесь не используется. [zoxide](https://github.com/ajeetdsouza/zoxide/releases/tag/v0.9.9), [fzf](https://github.com/junegunn/fzf/releases/tag/v0.71.0), [документация zoxide](https://github.com/ajeetdsouza/zoxide#installation).
 
+Для Kitty официальный установщик скачивает последний стабильный релиз. Сетевая панель использует API, которого нет в Kitty 0.32.2 из APT на Ubuntu 24.04. [Последний релиз Kitty](https://github.com/kovidgoyal/kitty/releases/latest).
+
 ```sh
 arch=$(dpkg --print-architecture)
 mkdir -p "$HOME/.local/bin" "$HOME/.cache/terminal-dotfiles/downloads"
@@ -49,7 +51,8 @@ sudo dpkg -i "$download_dir/zoxide.deb"
 curl -fL "https://github.com/junegunn/fzf/releases/download/v0.71.0/fzf-0.71.0-linux_${arch}.tar.gz" -o "$download_dir/fzf.tar.gz"
 tar -xzf "$download_dir/fzf.tar.gz" -C "$HOME/.local/bin" fzf
 curl -fsSL https://starship.rs/install.sh | sh -s -- --version v1.26.0 --bin-dir "$HOME/.local/bin" --yes
-curl -fL https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin installer=version-0.49.0 launch=n
+curl -fsSL https://sw.kovidgoyal.net/kitty/installer.sh -o "$download_dir/kitty-installer.sh" &&
+  sh "$download_dir/kitty-installer.sh" launch=n
 ```
 
 Установщик Kitty кладёт приложение в `~/.local/kitty.app`. Создайте ярлык с **абсолютными** путями к программе и значку: такой ярлык работает и тогда, когда графическая среда не добавляет `~/.local/bin` в `PATH`. [Инструкция Kitty](https://sw.kovidgoyal.net/kitty/binary/).
