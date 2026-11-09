@@ -47,8 +47,12 @@ class RealKubieCycleTests(unittest.TestCase):
                 "- name: prod:fixture\n  context:\n    cluster: fixture\n    user: fixture\n    namespace: app\n"
                 "clusters:\n- name: fixture\n  cluster:\n    server: https://example.invalid\n"
                 "users:\n- name: fixture\n  user: {}\n")
+            # Skip the host's global zshrc and ignore insecure completion directories in the PTY.
+            (fixture / ".zshenv").write_text("unsetopt GLOBAL_RCS\n")
             (fixture / ".zshrc").write_text(
+                "alias compinit='compinit -i'\n"
                 f"source {shlex.quote(str(ROOT / 'zsh/.zshrc'))}\n"
+                "unalias compinit\n"
                 "function _fixture_ready() {\n"
                 "  if [[ $PS1 != *fixture-ready* ]]; then PS1+=$'%{\\e]777;fixture-ready;'\"$$\"$'\\a%}'; fi\n"
                 "  return 0\n}\n"
@@ -128,7 +132,7 @@ class RealKubieCycleTests(unittest.TestCase):
                 os.write(fd, b"kubie ctx -n app\n")
                 render("[☸ fixture::app] project", wait_for("prompt"))
                 for iteration in range(2):
-                    os.write(fd, b"htop --readonly --no-meters --no-function-bar --pid $$\n")
+                    os.write(fd, b"htop --readonly --pid $$\n")
                     wait_for("tui")
                     render("[☸ fixture::app] project htop", htop=True)
                     os.write(fd, b"q")
