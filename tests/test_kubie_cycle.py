@@ -47,8 +47,7 @@ class RealKubieCycleTests(unittest.TestCase):
                 "- name: prod:fixture\n  context:\n    cluster: fixture\n    user: fixture\n    namespace: app\n"
                 "clusters:\n- name: fixture\n  cluster:\n    server: https://example.invalid\n"
                 "users:\n- name: fixture\n  user: {}\n")
-            # Skip the host's global zshrc and ignore insecure completion directories in the PTY.
-            (fixture / ".zshenv").write_text("unsetopt GLOBAL_RCS\n")
+            # Ignore insecure completion directories without prompting in the PTY.
             (fixture / ".zshrc").write_text(
                 "alias compinit='compinit -i'\n"
                 f"source {shlex.quote(str(ROOT / 'zsh/.zshrc'))}\n"
@@ -61,9 +60,11 @@ class RealKubieCycleTests(unittest.TestCase):
                                       *os.defpath.split(os.pathsep), "/usr/sbin", "/sbin"]))
             # HOME is scoped to the spawned test process only. Kubie's settings,
             # namespace history, shell rc files and htop settings stay disposable.
+            # Kubie sources Ubuntu's global zshrc again in the nested shell.
             env = dict(HOME=str(fixture), PATH=os.pathsep.join(path), SHELL=TOOLS["zsh"],
                        TERM="xterm-256color", LANG="en_US.UTF-8", KITTY_WINDOW_ID="42", KITTY_PID="1",
-                       STARSHIP_CONFIG=str(ROOT / "starship/.config/starship.toml"), HTOPRC=str(fixture / "htoprc"))
+                       STARSHIP_CONFIG=str(ROOT / "starship/.config/starship.toml"),
+                       HTOPRC=str(fixture / "htoprc"), skip_global_compinit="1")
             integration = Path("/Applications/kitty.app/Contents/Resources/kitty/shell-integration/zsh")
             if (integration / ".zshenv").exists():
                 # Match Kitty's initial launch. Kubie then starts its own shell
