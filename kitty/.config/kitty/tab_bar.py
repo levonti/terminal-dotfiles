@@ -629,8 +629,6 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
             fg = color_as_int(draw_data.tab_fg(tab))
             restore_fg = f"\x1b[38;2;{fg >> 16};{(fg >> 8) & 255};{fg & 255}m"
             title = fit_title(title, width - 1, restore_fg)
-            if tab.is_active:
-                title += "\x1b[24;59m"
         draw_attributed_string(title, screen)
     screen.cursor.x = start + width
     end = max(start, screen.cursor.x - 1)
