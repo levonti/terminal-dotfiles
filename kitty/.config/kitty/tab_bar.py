@@ -622,8 +622,9 @@ if __name__ == "__main__" and sys.platform == "linux":
         release = freedesktop_os_release()
     except OSError:
         release = {}
-    if release.get("ID") == "ubuntu" and release.get("VERSION_ID") == "24.04":
-        print("tab_bar_style custom\ntab_bar_min_tabs 1")
-        # The desktop can grab Super+number for its app launcher.
+    if release.get("ID") == "ubuntu":
+        if release.get("VERSION_ID") == "24.04":
+            print("tab_bar_style custom\ntab_bar_min_tabs 1")
+        # Match Ctrl+Shift+Left/Right and override Kitty's pane shortcuts.
         for number in range(1, 10):
-            print(f"map --allow-fallback=shifted,ascii ctrl+alt+{number} goto_tab {number}")
+            print(f"map --allow-fallback=shifted,ascii ctrl+shift+{number} goto_tab {number}")

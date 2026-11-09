@@ -9,8 +9,8 @@
 | Закрыть вкладку | `Command+W` | `Super+W` |
 | Новая панель внутри вкладки | `Command+Enter` | `Super+Enter` |
 | Закрыть панель | `Command+Shift+D` | `Super+Shift+D` |
-| Следующая / предыдущая вкладка | `Command+Right/Left` | `Super+Right/Left` |
-| Вкладка по номеру 1–9 | `Command+1…9` | `Super+1…9`, на Ubuntu 24.04 также `Ctrl+Alt+1…9` |
+| Следующая / предыдущая вкладка | `Command+Right/Left` | `Super+Right/Left` или `Ctrl+Shift+Right/Left` |
+| Вкладка по номеру 1–9 | `Command+1…9` | `Super+1…9`, на Ubuntu также `Ctrl+Shift+1…9` |
 | Выбрать вкладку из списка | `Command+P` | `Super+P` |
 | Переименовать вкладку | `Command+Shift+T` | `Super+Shift+T` |
 | Копировать / вставить | `Command+C/V` | `Super+C/V` |
@@ -20,6 +20,8 @@
 | Открыть `kitty.conf` | `Command+,` | `Super+,` |
 
 На Mac `Fn+Up/Down` прокручивают вывод, а `Fn+Left/Right` отправляют Home/End в приложение: Bash и zsh переходят к началу/концу текущей строки. Постоянная нумерация панелей внутри вкладки пока не добавлена. Пустое имя при переименовании возвращает автоматический заголовок; правила подписей описаны в [настройках вкладок](kitty-tabs.md).
+
+На Ubuntu `Ctrl+Shift+1…9` переключают вкладки вместо панелей внутри вкладки.
 
 ## Переход по словам в оболочке
 
