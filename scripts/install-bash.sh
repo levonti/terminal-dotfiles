@@ -36,6 +36,8 @@ fi
 stow --dir="$repo_dir" --no-folding --simulate --verbose --target="$target_home" bash
 stow --dir="$repo_dir" --no-folding --target="$target_home" bash
 
+# dash and Bash support -ef for checking the symlink's target.
+# shellcheck disable=SC3013
 if [ ! -L "$rc" ] || [ ! "$rc" -ef "$repo_dir/bash/.bashrc" ]; then
   printf '%s\n' 'Stow did not create the expected ~/.bashrc symlink. Check .stowrc for simulation or ignore options.' >&2
   exit 1

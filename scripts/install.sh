@@ -20,6 +20,8 @@ case "$target_home/" in
 esac
 
 check_config_dir() {
+  # dash and Bash support -ef for comparing directories through symlinks.
+  # shellcheck disable=SC3013
   if [ "${2%/}" != "$3" ] && [ ! "$2" -ef "$3" ]; then
     fail "$1 selects '$2'; this installer targets '$3'."
   fi
@@ -56,6 +58,8 @@ backup_dir=
 applying=0
 
 installed_link() {
+  # dash and Bash support -ef for checking the symlink's target.
+  # shellcheck disable=SC3013
   [ -L "$target_home/${1#*/}" ] && [ "$target_home/${1#*/}" -ef "$repo_dir/$1" ]
 }
 
