@@ -168,6 +168,78 @@ class TitleTests(unittest.TestCase):
 class LayoutTests(unittest.TestCase):
     snapshot = ([(59, 1_000_000, 250_000), (60, 0, 0)], 1_000_000, 250_000, "ready")
 
+    def test_network_panel_survives_tab_alignment(self):
+        class Screen:
+            def __init__(self, columns):
+                self.columns = columns
+                self.cursor = SimpleNamespace(x=0, fg=0, bg=0, bold=False, italic=False)
+                self.row = " " * columns
+
+            def draw(self, value):
+                start = self.cursor.x
+                self.cursor.x += len(value)
+                self.row = (self.row[:start] + value + self.row[self.cursor.x:])[:self.columns]
+
+            def insert_characters(self, count):
+                start = self.cursor.x
+                self.row = (self.row[:start] + " " * count + self.row[start:])[:self.columns]
+
+        def extent(start, end):
+            return SimpleNamespace(x=SimpleNamespace(start=start, end=end),
+                                   shifted=lambda x: extent(start + x, end + x))
+
+        fast = ModuleType("kitty.fast_data_types")
+        fast.wcswidth = len
+        api = ModuleType("kitty.tab_bar")
+        api.apply_title_template = lambda draw_data, tab, index: f" {index} {tab.title} "
+        api.draw_attributed_string = lambda value, screen: screen.draw(value)
+        api.draw_tab_with_fade = self.fail
+        utils = ModuleType("kitty.utils")
+        utils.color_as_int = int
+        modules = {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast,
+                   "kitty.tab_bar": api, "kitty.utils": utils}
+        draw_data = SimpleNamespace(os_window_id=1, tab_bar_edge="top", max_tab_title_length=40,
+                                    tab_bg=lambda _: 0, tab_fg=lambda _: 0, default_bg=0)
+        tab = SimpleNamespace(title="project")
+        tab._replace = lambda **_: tab
+        for alignment, factor in (("center", 2), ("end", 1)):
+            for columns, expected_panel_width in ((120, 45), (50, 27), (30, 0)):
+                with self.subTest(alignment=alignment, columns=columns):
+                    screen = Screen(columns)
+                    bar = SimpleNamespace(tab_bar_align=alignment, last_laid_out_tabs=(tab,))
+                    fast.get_boss = lambda: SimpleNamespace(os_window_map={1: SimpleNamespace(tab_bar=bar)})
+
+                    def align():
+                        # Kitty inserts cells before the entire rendered row.
+                        end = bar.tab_extents[-1].x.end
+                        shift = (columns - end) // factor
+                        screen.cursor.x = 0
+                        screen.insert_characters(shift)
+                        bar.tab_extents = tuple(te.shifted(x=shift) for te in bar.tab_extents)
+
+                    bar.align = align
+                    with patch.dict(sys.modules, modules), patch.object(tabs.sys, "platform", "linux"), \
+                            patch.object(tabs, "get_monitor", return_value=SimpleNamespace(snapshot=lambda: self.snapshot)):
+                        tabs.draw_tab(draw_data, screen, tab, 0, columns, 1, True, SimpleNamespace(for_layout=True))
+                        self.assertIs(bar.align, align)
+                        screen.cursor.x = 0
+                        end = tabs.draw_tab(draw_data, screen, tab, 0, columns, 1, True, SimpleNamespace(for_layout=False))
+
+                    bar.tab_extents = (extent(0, end),)
+                    bar.align()
+                    self.assertIs(bar.align, align)
+                    hit = bar.tab_extents[0].x
+                    self.assertEqual(screen.row[hit.start:hit.end], " 1 project")
+                    if expected_panel_width:
+                        panel_start = columns - expected_panel_width
+                        self.assertTrue(screen.row[panel_start:].startswith(" Linux ↓"))
+                        self.assertIn("↑", screen.row[panel_start:])
+                        self.assertEqual(hit.start, (panel_start - end - 2) // factor)
+                        self.assertLess(hit.end, panel_start - 1)
+                    else:
+                        self.assertEqual(hit.start, (columns - end) // factor)
+                        self.assertNotIn("Linux", screen.row)
+
     def test_tabs_take_priority_at_eight_tabs_in_requested_sizes(self):
         desired = [14, 16, 12, 20, 18, 10, 24, 23]
         for columns in (80, 120, 160):
