@@ -40,7 +40,11 @@ Stow creates five symlinks on a clean system, and the Bash installer adds a sixt
 
 Start `zsh -l` and run `starship --version`, `zoxide --version`, `fzf --version`, `type z`, and `type zi`. Then start `bash` and check that the prompt shows the `bash` label and that `z` and `zi` are still available. Run `exit` to return to Zsh. Check the Kitty version as described in the platform guide. If Zsh is already installed and your default shell is different, follow the guide's shell change step and log in again.
 
-To update, run `git pull --ff-only` in the clone. The existing symlinks pick up changes to the files they point to. Run Stow again when the repository adds files or packages. Publish your own shared changes with Git commits and pushes.
+### Update settings
+
+In your clone, switch to `main` with `git switch main` if needed. With `main` tracking `origin/main`, run `git pull`. On Ubuntu, press `Ctrl+Shift+F5` in Kitty to reload the configuration.
+
+Existing Stow symlinks pick up changes to linked files. Run Stow again when the repository adds files or packages.
 
 ## Migrate an existing Ubuntu 24.04 setup
 
