@@ -1,6 +1,6 @@
 # Shared prompt: directory emphasis, quieter shell label, explicit Git counts.
 add_newline = true
-format = '$hostname$shell$kubernetes$directory$git_branch$git_status$line_break$character'
+format = '$hostname$shell${custom.kube_environment}$directory$git_branch$git_status$line_break$character'
 right_format = '$status$cmd_duration'
 
 [hostname]
@@ -42,33 +42,11 @@ staged = '+$count '
 renamed = 'rename:$count '
 deleted = '-$count '
 
-[kubernetes]
-disabled = false
-# Display only the context explicitly selected in this Kubie session.
-detect_env_vars = ['KUBIE_ACTIVE']
-format = '\[[$symbol]($style) $context(::$namespace)\] '
-symbol = '☸'
-style = 'bold #b48ead'
-
-[[kubernetes.contexts]]
-context_pattern = 'dev[/:](?:[^/]+/)*([^/]+)'
-context_alias = 'DEV $1'
-style = 'bold #a3be8c'
-
-[[kubernetes.contexts]]
-context_pattern = 'test[/:](?:[^/]+/)*([^/]+)'
-context_alias = 'TEST $1'
-style = 'bold #ebcb8b'
-
-[[kubernetes.contexts]]
-context_pattern = 'prod[/:](?:[^/]+/)*([^/]+)'
-context_alias = '$1'
-style = 'bold #bf616a'
-
-[[kubernetes.contexts]]
-# Keep unknown environments conspicuous without displaying path-like prefixes.
-context_pattern = '(?:[^/]+/)*([^/]+)'
-context_alias = '? ENV $1'
+[custom.kube_environment]
+when = 'test -n "$KUBIE_ACTIVE"'
+command = '"$HOME/.config/terminal-dotfiles/kube-environment"'
+format = '$output '
+shell = ['sh']
 
 [status]
 disabled = false

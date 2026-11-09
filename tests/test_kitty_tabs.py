@@ -1,3 +1,4 @@
+from kube_fixture import install
 import base64
 import json
 import os
@@ -326,6 +327,7 @@ class ShellMetadataTests(unittest.TestCase):
         # Exercise the complete registration block without loading private rc files.
         block = hook_block(shell)
         with TemporaryDirectory() as directory:
+            install(directory)
             binary = Path(directory) / "starship"
             binary.write_text("#!/bin/sh\n" + ("exit 1\n" if failing else
                               'case "$*" in "module kubernetes") printf "\\033[32m[☸ DEV example::app]\\033[0m ";; *) exit 90;; esac\n'))
@@ -341,7 +343,13 @@ class ShellMetadataTests(unittest.TestCase):
                               f'contexts:\n- name: {context or "dev:example"}\n  context:\n    cluster: example\n'
                               '    user: example\n    namespace: app\nclusters:\n- name: example\n'
                               '  cluster:\n    server: https://example.invalid\nusers:\n- name: example\n  user: {}\n')
-            env = {**os.environ, "KITTY_WINDOW_ID": "42", "KUBIE_ACTIVE": active,
+            source = Path(directory) / '.kube/configs/lab/dev/fixture.yaml'
+            source.parent.mkdir(parents=True)
+            source.write_text(config.read_text())
+            (Path(directory) / '.kube/kubie.yaml').write_text('configs:\n  include: ["~/.kube/configs/**/*.yaml"]\n')
+            if failing or not kubie_available:
+                (Path(directory) / '.config/terminal-dotfiles/kube-environment').unlink()
+            env = {**os.environ, "HOME": directory, "KITTY_WINDOW_ID": "42", "KUBIE_ACTIVE": active,
                    "PATH": f"{directory}:/usr/bin:/bin", "SSH_TTY": "", "SSH_CONNECTION": "", "TERM": "dumb",
                    "STARSHIP_CONFIG": str(ROOT / "starship/.config/starship.toml"), "KUBECONFIG": str(config),
                    "KUBIE_KUBECONFIG": str(config.with_suffix(".kubie") if custom_kubeconfig else config)}
@@ -366,26 +374,18 @@ class ShellMetadataTests(unittest.TestCase):
             value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
             state = json.loads(base64.b64decode(value))
             self.assertGreater(state["pid"], 0)
-            self.assertEqual(tabs.plain_title(state["context"]), "[☸ DEV example::app]")
+            self.assertEqual(tabs.plain_title(state["context"]), "dev:example::app")
             self.assertEqual(state["kube_env"], "DEV")
             self.assertEqual(state["phase"], "prompt")
             self.assertEqual(output.count("_terminal_dotfiles_kubie_title"), 1)
 
-    @unittest.skipUnless(shutil.which("starship"), "Starship is not installed")
-    def test_actual_prompt_module_format_for_all_environment_aliases(self):
-        for context, label, environment in (("dev:prod-simulator", "DEV prod-simulator", "DEV"),
-                                            ("test:example", "TEST example", "TEST"),
-                                            ("prod:example", "example", "PROD"),
-                                            ("other/cluster", "? ENV cluster", "?ENV"),
-                                            ("prod/region/example", "example", "PROD")):
-            for shell in SHELLS:
-                output = self.run_hook(shell, context=context)
-                value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
-                state = json.loads(base64.b64decode(value))
-                raw = state["context"]
-                self.assertEqual(tabs.plain_title(raw), f"[☸ {label}::app]")
-                self.assertRegex(raw, r"\x1b\[[0-9;]*m☸\x1b\[0m ")
-                self.assertEqual(state["kube_env"], environment)
+    def test_context_name_does_not_override_directory(self):
+        for shell in SHELLS:
+            output = self.run_hook(shell, context="prod:arbitrary")
+            value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
+            state = json.loads(base64.b64decode(value))
+            self.assertEqual(state["kube_env"], "DEV")
+            self.assertEqual(state["context"], "prod:arbitrary::app")
 
     def test_outer_shell_and_failed_reads_clear_stale_context(self):
         for shell in SHELLS:
@@ -403,7 +403,7 @@ class ShellMetadataTests(unittest.TestCase):
                 value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
                 state = json.loads(base64.b64decode(value))
                 self.assertEqual(state["kube_env"], "")
-                self.assertEqual(tabs.plain_title(state["context"]), "[☸ DEV example::app]")
+                self.assertEqual(state["context"], "")
 
     def test_bash_preserves_scalar_and_array_prompt_commands(self):
         for shell in BASH_SHELLS:
@@ -430,11 +430,13 @@ class MetadataLifecycleTests(unittest.TestCase):
     def test_real_shell_exit_invalidates_metadata_without_parent_refresh(self):
         for shell in SHELLS:
             with self.subTest(shell=shell), TemporaryDirectory() as directory:
-                starship = Path(directory) / "starship"
-                starship.write_text("#!/bin/sh\nprintf '[☸ DEV example::app]'\n")
+                helper = Path(directory) / ".config/terminal-dotfiles"
+                helper.mkdir(parents=True)
+                starship = helper / "kube-environment"
+                starship.write_text("#!/bin/sh\nprintf 'DEV\\ta3be8c\\t[☸ DEV example::app]\\n'\n")
                 starship.chmod(0o755)
                 script = hook_block(shell) + "\n_terminal_dotfiles_kubie_title\nbuiltin read -r line\n"
-                env = {**os.environ, "KITTY_WINDOW_ID": "42", "KUBIE_ACTIVE": "1",
+                env = {**os.environ, "HOME": directory, "KITTY_WINDOW_ID": "42", "KUBIE_ACTIVE": "1",
                        "SSH_TTY": "", "SSH_CONNECTION": "", "PATH": f"{directory}:/usr/bin:/bin"}
                 args = [shell, "-fc", script] if shell == "zsh" else [shell, "--noprofile", "--norc", "-c", script]
                 proc = subprocess.Popen(args, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

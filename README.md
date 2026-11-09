@@ -86,9 +86,10 @@ The shared `.zshrc` adds the standard user and Homebrew binary directories to `P
 
 ## Kubernetes in Zsh
 
-Optional Kubie keeps Kubernetes contexts and namespaces separate across tabs and reads individual kubeconfigs from `~/.kube/configs/`. Select a context in each tab with `kubie ctx`. The menu shows short names in the form `<env>:<cluster>`.
+Optional Kubie keeps Kubernetes contexts and namespaces separate across tabs and reads individual kubeconfigs from `~/.kube/configs/`. Select a context in each tab with `kubie ctx`. The menu preserves the original context names.
 
-Within a Kubie session, Starship shows the short cluster name and namespace before the current path and Git status. The `☸` icon is green for dev, yellow for test, and red for production. Production uses the red icon without an extra environment label. The indicator stays hidden in the initial shell. [Kubie setup and verification guide (Russian)](docs/kubie.md).
+Within a Kubie session, Starship and Kitty show a shared environment badge, full context name and namespace. The resolver uses the original kubeconfig directory and exact overrides, with configurable environments including DEV, TEST, PROD, UAT and NT. Context names are unrestricted. Install the optional runtime with `sh scripts/setup-kube-environment.sh`. [Setup and diagnostics (Russian)](docs/kubie.md).
+
 
 ## Kitty tabs
 

@@ -1,0 +1,15 @@
+# Copy to ~/.config/terminal-dotfiles/kube-environments.yaml.
+root: ~/.kube/configs
+environments:
+  dev: {label: DEV, color: a3be8c}
+  test: {label: TEST, color: ebcb8b}
+  prod: {label: PROD, color: ed8796}
+  uat: {label: UAT, color: 88c0d0}
+  nt: {label: NT, color: b48ead}
+directory_aliases:
+  development: dev
+  production: prod
+overrides: []
+# - source: corp/company/shared.yaml
+#   context: cluster-42
+#   environment: uat
