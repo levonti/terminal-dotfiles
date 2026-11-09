@@ -93,7 +93,7 @@ class RealKubieCycleTests(unittest.TestCase):
                             if titles:
                                 native_title = titles[-1].decode()
                             return output.decode(errors="replace")
-                self.fail(f"No {kind} state in the isolated Kubie PTY")
+                self.fail(f"No {kind} state in the isolated Kubie PTY. Output tail: {output[-1500:]!r}")
 
             def render(expected, prompt_output=None, htop=False):
                 group = os.tcgetpgrp(fd)
