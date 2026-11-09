@@ -45,10 +45,13 @@ class TitleTests(unittest.TestCase):
                 self.assertEqual(tabs.compact_title(source), expected)
 
     def render(self, title, name="", context="", active=True, remote=False,
-               cwd="/work/project", at_prompt=True, argv=None, owner=None, kubie=True, reported="", metadata=True):
+               cwd="/work/project", at_prompt=True, argv=None, owner=None, kubie=True, reported="",
+               metadata=True, kube_env=None, formatter=None):
         state = dict(v=1, pid=os.getpid() if owner is None else owner,
                      phase="prompt" if at_prompt else "running", cwd=cwd,
                      context=context if kubie else "", command=(argv or [title])[0] if not at_prompt else "")
+        if kube_env is not None:
+            state["kube_env"] = kube_env
         window = SimpleNamespace(id=1, user_vars={"terminal_dotfiles_state": json.dumps(state)} if metadata else {},
             child_is_remote=remote, get_cwd_of_child=lambda: cwd, at_prompt=at_prompt,
             child=SimpleNamespace(pid=os.getpid(), foreground_environ={},
@@ -58,7 +61,7 @@ class TitleTests(unittest.TestCase):
         module = ModuleType("kitty.fast_data_types")
         module.get_boss = lambda: SimpleNamespace(tab_for_id=lambda _: tab)
         with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": module}):
-            return tabs.draw_title({"title": title, "tab_id": 1, "is_active": active})
+            return tabs.draw_title({"title": title, "tab_id": 1, "is_active": active, "fmt": formatter})
 
     def test_focus_preserves_label(self):
         for title in ("user@host: ~/project", "root@host: ~", "~", "~/project"):
@@ -66,17 +69,17 @@ class TitleTests(unittest.TestCase):
 
     def test_explicit_names_are_verbatim_and_override_context(self):
         self.assertEqual(self.render("kubie ctx", name="Deploy: production console",
-                                     context="[☸ DEV example::default]"), "Deploy: production console")
+                                     context="[☸ DEV example::default]", kube_env="DEV"), "Deploy: production console")
 
     def test_context_survives_running_commands_and_clears_after_exit(self):
-        self.assertEqual(self.render("htop", context="[☸ DEV example::app]", at_prompt=False, argv=["htop"]),
-                         "[☸ DEV example::app] project htop")
+        self.assertEqual(self.render("htop", context="[☸ DEV example::app]", kube_env="DEV", at_prompt=False, argv=["htop"]),
+                         "DEV example::app project htop")
         # Simulate returning to a parent which never loaded the new hooks.
         self.assertEqual(self.render("~", context="[☸ DEV example::app]", kubie=False), "project")
 
     def test_exited_metadata_owner_is_rejected_even_in_another_kubie_shell(self):
         with patch.object(tabs.os, "getsid", side_effect=ProcessLookupError):
-            self.assertEqual(self.render("~", context="[☸ example::app]"), "project")
+            self.assertEqual(self.render("~", context="[☸ example::app]", kube_env="PROD"), "project")
 
     def test_unscoped_legacy_metadata_is_rejected(self):
         window = SimpleNamespace(child_is_remote=False, child=SimpleNamespace(foreground_environ={"KUBIE_ACTIVE": "1"}),
@@ -100,25 +103,49 @@ class TitleTests(unittest.TestCase):
         window = SimpleNamespace(id=1, child_is_remote=False, at_prompt=False,
             user_vars={"terminal_dotfiles_state": json.dumps(state)},
             child=SimpleNamespace(pid=os.getpid(), foreground_cmdline=["/bin/htop"]))
-        self.assertEqual(tabs.window_title(window, "kubie ctx"), "project htop")
+        self.assertEqual(tabs.window_title(window, "kubie ctx", tabs.shell_state(window)), "project htop")
 
     def test_different_terminal_session_is_rejected(self):
         with patch.object(tabs.os, "getsid", side_effect=[10, 20]):
             self.assertEqual(self.render("~", context="[☸ other]"), "project")
 
-    def test_only_kubernetes_icon_is_colored_and_tab_colors_are_restored(self):
-        title = "[☸ example::app] project"
+    def test_legacy_kubernetes_snapshot_keeps_the_colored_icon(self):
+        title = "[☸ example::app]"
         for background in ((136, 192, 208), (37, 44, 58)):
             for color in ((191, 97, 106), (163, 190, 140), (235, 203, 139), (180, 142, 173)):
                 formatter = SimpleNamespace(fg=SimpleNamespace(tab="\x1b[38;2;23;27;36m"),
                     bg=SimpleNamespace(tab=f"\x1b[48;2;{background[0]};{background[1]};{background[2]}m"))
                 raw = f"[\x1b[1;38;2;{color[0]};{color[1]};{color[2]}m☸\x1b[0m example::app]"
-                styled = tabs.accent_kubernetes(title, {"fmt": formatter}, json.dumps({"context": raw}))
+                styled = tabs.kubernetes_title({"context": raw}, formatter)
                 self.assertEqual(tabs.plain_title(styled), title)
                 self.assertIn("☸" + formatter.fg.tab + " example::app", styled)
                 self.assertNotIn("48;", styled)
                 icon_color = tabs.sgr_rgb(styled.split("☸", 1)[0], 38)
                 self.assertGreaterEqual(tabs.contrast(icon_color, background), 3)
+
+    def test_kubernetes_badge_keeps_the_environment_without_color_and_restores_tab_colors(self):
+        for environment, context, cluster, color in (
+            ("DEV", "[☸ DEV prod-simulator::app]", "prod-simulator", "a3be8c"),
+            ("TEST", "[☸ TEST example::app]", "example", "ebcb8b"),
+            ("PROD", "[☸ DEV sandbox::app]", "DEV sandbox", "ed8796"),
+            ("?ENV", "[☸ ? ENV example::app]", "example", "c1a7d5"),
+        ):
+            expected = f"{environment} {cluster}::app project"
+            rgb = bytes.fromhex(color)
+            fill = f"\x1b[48:2::{rgb[0]}:{rgb[1]}:{rgb[2]}m"
+            text = "\x1b[38:2::23:27:36m"
+            self.assertGreaterEqual(tabs.contrast(rgb, (23, 27, 36)), 4.5)
+            for background in ("136:192:208", "37:44:58"):
+                formatter = SimpleNamespace(fg=SimpleNamespace(_171b24=text, tab="\x1b[38:2::185:195:212m"),
+                    bg=SimpleNamespace(tab=f"\x1b[48:2::{background}m", **{"_" + color: fill}))
+                result = self.render("~", context=context, kube_env=environment, formatter=formatter)
+                self.assertEqual(tabs.plain_title(result), expected)
+                self.assertTrue(result.startswith(fill + text + environment + formatter.bg.tab + formatter.fg.tab + " "))
+            self.assertEqual(self.render("~", context=context, kube_env=environment), expected)
+
+    def test_kubernetes_badge_preserves_nonstandard_starship_text(self):
+        self.assertEqual(self.render("~", context="kube example/app", kube_env="TEST"), "TEST kube example/app project")
+        self.assertEqual(self.render("~", context="[☸ example::app]", kube_env=[]), "[☸ example::app] project")
 
     def test_return_to_parent_invalidates_same_frame_cache(self):
         child = SimpleNamespace(pid=os.getpid(), pid_for_cwd=101, foreground_cmdline=["zsh"])
@@ -136,7 +163,8 @@ class TitleTests(unittest.TestCase):
 
     def test_remote_commands_keep_last_remote_directory_and_ignore_local_kubie(self):
         self.assertEqual(self.render("user@host: /srv/project", remote=True), "host:project")
-        self.assertEqual(self.render("user@host: htop -d 5", remote=True, context="[☸ DEV local::app]"), "host:project htop")
+        self.assertEqual(self.render("user@host: htop -d 5", remote=True,
+                                     context="[☸ DEV local::app]", kube_env="DEV"), "host:project htop")
         self.assertEqual(self.render("htop", remote=True), "host:project htop")
         self.assertEqual(self.render("user@host: /srv/project", remote=True), "host:project")
 
@@ -163,6 +191,28 @@ class TitleTests(unittest.TestCase):
                 self.assertLessEqual(len(result), width)
                 self.assertTrue(result.startswith(" 1 "))
                 self.assertTrue(result.endswith(" htop"))
+
+    def test_kubernetes_badge_survives_narrow_titles_with_a_long_suffix(self):
+        fast = ModuleType("kitty.fast_data_types")
+        fast.wcswidth = len
+        api = ModuleType("kitty.tab_bar")
+
+        def truncate_line(text, width):
+            # Keep formatting sequences intact and count only visible cells.
+            parts = re.split(r"(\x1b\[[0-9;:]*m)", text)
+            for index in range(0, len(parts), 2):
+                if len(parts[index]) >= width:
+                    return "".join(parts[:index]) + parts[index][:width - 1] + "…"
+                width -= len(parts[index])
+            return text + "…"
+
+        api.truncate_line = truncate_line
+        title = " 3 \x1b[48:2::237:135:150m\x1b[38:2::23:27:36mPROD\x1b[48:2::136:192:208m core01::app project long-command"
+        with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast, "kitty.tab_bar": api}):
+            for width in (7, 8, 11, 12, 16, 20):
+                result = tabs.fit_title(title, width)
+                self.assertLessEqual(len(re.sub(r"\x1b\[[0-9;:]*m", "", result)), width)
+                self.assertTrue(tabs.plain_title(result).startswith("3 PROD"))
 
 
 class LayoutTests(unittest.TestCase):
@@ -271,7 +321,8 @@ class LayoutTests(unittest.TestCase):
 
 
 class ShellMetadataTests(unittest.TestCase):
-    def run_hook(self, shell, active="1", failing=False, array=False, context=None, quoted_directory=False):
+    def run_hook(self, shell, active="1", failing=False, array=False, context=None, quoted_directory=False,
+                 custom_kubeconfig=False, kubie_available=True):
         # Exercise the complete registration block without loading private rc files.
         block = hook_block(shell)
         with TemporaryDirectory() as directory:
@@ -281,6 +332,10 @@ class ShellMetadataTests(unittest.TestCase):
             if context is not None:
                 binary.write_text(f'#!/bin/sh\nexec {shutil.which("starship")} "$@"\n')
             binary.chmod(0o755)
+            if kubie_available:
+                kubie = Path(directory) / "kubie"
+                kubie.write_text(f'#!/bin/sh\n[ "$*" = "info ctx" ] || exit 90\nprintf "%s\\n" "{context or "dev:example"}"\n')
+                kubie.chmod(0o755)
             config = Path(directory) / "kubeconfig"
             config.write_text(f'apiVersion: v1\nkind: Config\ncurrent-context: {context or "dev:example"}\n'
                               f'contexts:\n- name: {context or "dev:example"}\n  context:\n    cluster: example\n'
@@ -288,7 +343,8 @@ class ShellMetadataTests(unittest.TestCase):
                               '  cluster:\n    server: https://example.invalid\nusers:\n- name: example\n  user: {}\n')
             env = {**os.environ, "KITTY_WINDOW_ID": "42", "KUBIE_ACTIVE": active,
                    "PATH": f"{directory}:/usr/bin:/bin", "SSH_TTY": "", "SSH_CONNECTION": "", "TERM": "dumb",
-                   "STARSHIP_CONFIG": str(ROOT / "starship/.config/starship.toml"), "KUBECONFIG": str(config)}
+                   "STARSHIP_CONFIG": str(ROOT / "starship/.config/starship.toml"), "KUBECONFIG": str(config),
+                   "KUBIE_KUBECONFIG": str(config.with_suffix(".kubie") if custom_kubeconfig else config)}
             cwd = Path(directory) / 'quoted"path\\name' if quoted_directory else ROOT
             if quoted_directory:
                 cwd.mkdir()
@@ -311,27 +367,43 @@ class ShellMetadataTests(unittest.TestCase):
             state = json.loads(base64.b64decode(value))
             self.assertGreater(state["pid"], 0)
             self.assertEqual(tabs.plain_title(state["context"]), "[☸ DEV example::app]")
+            self.assertEqual(state["kube_env"], "DEV")
             self.assertEqual(state["phase"], "prompt")
             self.assertEqual(output.count("_terminal_dotfiles_kubie_title"), 1)
 
     @unittest.skipUnless(shutil.which("starship"), "Starship is not installed")
     def test_actual_prompt_module_format_for_all_environment_aliases(self):
-        for context, label in (("dev:example", "DEV example"), ("test:example", "TEST example"),
-                               ("prod:example", "example"), ("other/cluster", "? ENV cluster"),
-                               ("dev/region/example", "DEV example")):
+        for context, label, environment in (("dev:prod-simulator", "DEV prod-simulator", "DEV"),
+                                            ("test:example", "TEST example", "TEST"),
+                                            ("prod:example", "example", "PROD"),
+                                            ("other/cluster", "? ENV cluster", "?ENV"),
+                                            ("prod/region/example", "example", "PROD")):
             for shell in SHELLS:
                 output = self.run_hook(shell, context=context)
                 value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
-                raw = json.loads(base64.b64decode(value))["context"]
+                state = json.loads(base64.b64decode(value))
+                raw = state["context"]
                 self.assertEqual(tabs.plain_title(raw), f"[☸ {label}::app]")
                 self.assertRegex(raw, r"\x1b\[[0-9;]*m☸\x1b\[0m ")
+                self.assertEqual(state["kube_env"], environment)
 
     def test_outer_shell_and_failed_reads_clear_stale_context(self):
         for shell in SHELLS:
             for options in ({"active": ""}, {"failing": True}):
                 output = self.run_hook(shell, **options)
                 value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
-                self.assertEqual(json.loads(base64.b64decode(value))["context"], "")
+                state = json.loads(base64.b64decode(value))
+                self.assertEqual(state["context"], "")
+                self.assertEqual(state["kube_env"], "")
+
+    def test_unverified_environment_keeps_starship_context_without_badge(self):
+        for shell in SHELLS:
+            for options in ({"custom_kubeconfig": True}, {"kubie_available": False}):
+                output = self.run_hook(shell, **options)
+                value = re.search(r"SetUserVar=terminal_dotfiles_state=([^\a]+)\a", output)[1]
+                state = json.loads(base64.b64decode(value))
+                self.assertEqual(state["kube_env"], "")
+                self.assertEqual(tabs.plain_title(state["context"]), "[☸ DEV example::app]")
 
     def test_bash_preserves_scalar_and_array_prompt_commands(self):
         for shell in BASH_SHELLS:
