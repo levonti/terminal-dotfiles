@@ -4,6 +4,8 @@ case $- in
   *) return ;;
 esac
 
+alias y='yazi'
+
 # Find user-installed Starship and Homebrew without depending on the parent shell.
 for bin_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin"; do
   if [ -d "$bin_dir" ]; then
