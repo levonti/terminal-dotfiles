@@ -1,6 +1,6 @@
 # Shared prompt: directory emphasis, quieter shell label, explicit Git counts.
 add_newline = true
-format = '$hostname$shell${custom.kube_environment}$directory$git_branch$git_status$line_break$character'
+format = '$hostname$shell${custom.kube_environment}$directory${custom.git_branch}$git_status$line_break$character'
 right_format = '$status$cmd_duration'
 
 [hostname]
@@ -23,10 +23,35 @@ repo_root_format = '[$repo_root$path]($style)[$read_only]($read_only_style) '
 style = 'bold #88c0d0'
 repo_root_style = 'bold #88c0d0'
 
-[git_branch]
-symbol = 'git:'
-format = '[$symbol$branch(:$remote_branch)]($style) '
+[custom.git_branch]
+require_repo = true
+when = true
+shell = ['bash', '--noprofile', '--norc']
+format = '([│](#626f82) [git:$output]($style) )'
 style = '#b48ead'
+command = '''
+shorten() {
+    if (( ${#1} > 18 )); then
+        printf '%s…%s' "${1:0:3}" "${1: -14}"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+branch=$(git branch --show-current) || exit 1
+if [[ -z $branch ]]; then
+    printf 'HEAD'
+    exit
+fi
+
+shorten "$branch"
+upstream=$(git for-each-ref --format='%(upstream:remoteref)' "refs/heads/$branch") || exit 0
+upstream=${upstream#refs/heads/}
+if [[ -n $upstream && $upstream != "$branch" ]]; then
+    printf ':'
+    shorten "$upstream"
+fi
+'''
 
 [git_status]
 format = '([$all_status$ahead_behind]($style))'
@@ -45,7 +70,7 @@ deleted = '-$count '
 [custom.kube_environment]
 when = 'test -n "$KUBIE_ACTIVE"'
 command = '"$HOME/.config/terminal-dotfiles/kube-environment"'
-format = '$output '
+format = '($output [│](#626f82) )'
 shell = ['sh']
 
 [status]
