@@ -192,6 +192,9 @@ class TitleTests(unittest.TestCase):
                 self.assertLessEqual(len(result), width)
                 self.assertTrue(result.startswith(" 1 "))
                 self.assertTrue(result.endswith(" htop"))
+            host = "worker-test-long-name.example.invalid"
+            result = tabs.fit_title(f" 2 ssh {host}", 39)
+            self.assertEqual(result, f" 2 ssh {host[:31]}…")
 
     def test_kubernetes_badge_survives_narrow_titles_with_a_long_suffix(self):
         fast = ModuleType("kitty.fast_data_types")

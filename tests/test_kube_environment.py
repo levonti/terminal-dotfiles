@@ -10,6 +10,32 @@ spec.loader.exec_module(resolver)
 
 
 class ResolutionTests(unittest.TestCase):
+    def test_oidc_refresh_keeps_the_environment(self):
+        with TemporaryDirectory() as temp:
+            home = Path(temp)
+            source = home / '.kube/configs/lab/dev/fixture.yaml'
+            source.parent.mkdir(parents=True)
+            (home / '.kube/kubie.yaml').write_text('configs:\n  include: ["~/.kube/configs/**/*.yaml"]\n')
+            provider = {'name': 'oidc', 'config': {
+                'idp-issuer-url': 'https://issuer.example.invalid', 'client-id': 'fixture',
+                'id-token': 'old-id', 'refresh-token': 'old-refresh',
+            }}
+            doc = {
+                'current-context': 'demo',
+                'contexts': [{'name': 'demo', 'context': {'cluster': 'c', 'user': 'u'}}],
+                'clusters': [{'name': 'c', 'cluster': {'server': 'https://example.invalid'}}],
+                'users': [{'name': 'u', 'user': {'auth-provider': provider}}],
+            }
+            source.write_text(yaml.safe_dump(doc))
+            active = home / 'active.yaml'
+            provider['config'].update({'id-token': 'new-id', 'refresh-token': 'new-refresh'})
+            active.write_text(yaml.safe_dump(doc))
+            self.assertEqual(resolver.resolve(home, active)['label'], 'DEV')
+
+            provider['config']['client-id'] = 'different-client'
+            active.write_text(yaml.safe_dump(doc))
+            self.assertEqual(resolver.resolve(home, active)['reason'], 'connection-mismatch')
+
     def test_directories_overrides_duplicates_and_changes(self):
         with TemporaryDirectory() as temp:
             home = Path(temp)

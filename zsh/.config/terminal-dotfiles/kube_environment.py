@@ -34,6 +34,18 @@ def read(path):
         return yaml.load(stream, Loader=UniqueLoader) or {}
 
 
+def stable_user_config(user):
+    provider = user.get('auth-provider') if isinstance(user, dict) else None
+    if not isinstance(provider, dict) or provider.get('name') != 'oidc':
+        return user
+    config = provider.get('config')
+    if not isinstance(config, dict):
+        return user
+    # client-go writes refreshed tokens back to Kubie's temporary kubeconfig.
+    stable_config = {key: value for key, value in config.items() if key not in ('id-token', 'refresh-token')}
+    return {**user, 'auth-provider': {**provider, 'config': stable_config}}
+
+
 def resolve(home, active, settings=None):
     home = Path(home)
     result = dict(environment='?ENV', label='?ENV', color='c1a7d5', reason='unmapped')
@@ -73,7 +85,8 @@ def resolve(home, active, settings=None):
         # Context names alone must not identify a different active connection.
         for section, field, payload in [('clusters', 'cluster', 'cluster'), ('users', 'user', 'user')]:
             def item(doc, ctx):
-                return next(x[payload] for x in doc[section] if x['name'] == ctx[field])
+                value = next(x[payload] for x in doc[section] if x['name'] == ctx[field])
+                return stable_user_config(value) if field == 'user' else value
             if item(current, context) != item(document, original):
                 result['reason'] = 'connection-mismatch'
                 return result
