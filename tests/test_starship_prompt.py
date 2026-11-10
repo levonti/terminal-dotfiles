@@ -36,24 +36,28 @@ class StarshipPromptTests(unittest.TestCase):
                                         check=True, capture_output=True, text=True)
                 return re.sub(r'\x1b\[[0-9;:]*m|%[{}]', '', result.stdout).strip()
 
-            self.assertEqual(prompt(home), 'zsh ~ \n❯')
-            self.assertEqual(prompt(home, kube=True), 'zsh [PROD] core01 / app │ ~ \n❯')
+            self.assertEqual(prompt(home), 'zsh  ~ \n❯')
+            self.assertEqual(prompt(home, kube=True), 'zsh 󱃾 [PROD] core01 / app │  ~ \n❯')
 
             branch = 'ai/kitty-active-tab-background'
             git('init', '-qb', 'main')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                 'commit', '--allow-empty', '-qm', 'fixture')
             git('switch', '-qc', branch)
+            self.assertEqual(prompt(repo), 'zsh  project │  ai/…tab-background \n❯')
             self.assertEqual(prompt(repo, kube=True),
-                             'zsh [PROD] core01 / app │ project │ git:ai/…tab-background \n❯')
+                             'zsh 󱃾 [PROD] core01 / app │  project │  ai/…tab-background \n❯')
+
+            helper.write_text('#!/bin/sh\nexit 0\n')
+            self.assertEqual(prompt(repo, kube=True), prompt(repo))
 
             git('remote', 'add', 'origin', str(home / 'unused-remote'))
             git('update-ref', 'refs/remotes/origin/trunk', 'HEAD')
             git('branch', '--set-upstream-to=origin/trunk')
             (repo / 'untracked').touch()
-            self.assertIn('│ git:ai/…tab-background:trunk ?1', prompt(repo))
+            self.assertIn('│  ai/…tab-background:trunk ?1', prompt(repo))
 
             git('switch', '-q', 'main')
-            self.assertIn('│ git:main ?1', prompt(repo))
+            self.assertIn('│  main ?1', prompt(repo))
             git('switch', '-q', '--detach')
-            self.assertIn('│ git:HEAD ?1', prompt(repo))
+            self.assertIn('│  HEAD ?1', prompt(repo))

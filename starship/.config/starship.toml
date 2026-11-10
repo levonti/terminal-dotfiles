@@ -18,8 +18,8 @@ style = '#a2adbd'
 [directory]
 truncation_length = 3
 truncation_symbol = '…/'
-format = '[$path]($style)[$read_only]($read_only_style) '
-repo_root_format = '[$repo_root$path]($style)[$read_only]($read_only_style) '
+format = '[ $path]($style)[$read_only]($read_only_style) '
+repo_root_format = '[ $repo_root$path]($style)[$read_only]($read_only_style) '
 style = 'bold #88c0d0'
 repo_root_style = 'bold #88c0d0'
 
@@ -27,7 +27,7 @@ repo_root_style = 'bold #88c0d0'
 require_repo = true
 when = true
 shell = ['bash', '--noprofile', '--norc']
-format = '([│](#626f82) [git:$output]($style) )'
+format = '([│](#626f82) [ $output]($style) )'
 style = '#b48ead'
 command = '''
 shorten() {
@@ -70,7 +70,7 @@ deleted = '-$count '
 [custom.kube_environment]
 when = 'test -n "$KUBIE_ACTIVE"'
 command = '"$HOME/.config/terminal-dotfiles/kube-environment"'
-format = '($output [│](#626f82) )'
+format = '([󱃾](#a2adbd) $output [│](#626f82) )'
 shell = ['sh']
 
 [status]
