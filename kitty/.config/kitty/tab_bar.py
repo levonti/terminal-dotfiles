@@ -482,12 +482,16 @@ def fit_title(title, width, restore_fg=""):
         return truncate_line(title, width + 1).removesuffix("…")
     identity, separator, command = title.rpartition(" ")
     if separator and width >= 12:
-        command_width = min(wcswidth(command), width // 2)
+        plain_identity, _, plain_command = text.rpartition(" ")
+        identity_size = wcswidth(plain_identity)
+        command_size = wcswidth(plain_command)
+        # Give a long suffix the cells a short identity does not need.
+        command_width = min(command_size, max(width // 2, width - identity_size - 1))
         identity_width = width - command_width - 1
         if identity_width > badge_end:
-            if wcswidth(command) > command_width:
+            if command_size > command_width:
                 command = truncate_line(command, command_width)
-            if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", identity)) > identity_width:
+            if identity_size > identity_width:
                 identity = truncate_line(identity, identity_width)
             return identity + restore_fg + " " + command
     return truncate_line(title, width)
