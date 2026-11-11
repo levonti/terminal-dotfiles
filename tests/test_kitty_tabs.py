@@ -47,12 +47,14 @@ class TitleTests(unittest.TestCase):
 
     def render(self, title, name="", context="", active=True, remote=False,
                cwd="/work/project", at_prompt=True, argv=None, owner=None, kubie=True, reported="",
-               metadata=True, kube_env=None, formatter=None):
+               metadata=True, kube_env=None, formatter=None, kube_category="", kube_namespace="", limit=0):
         state = dict(v=1, pid=os.getpid() if owner is None else owner,
                      phase="prompt" if at_prompt else "running", cwd=cwd,
                      context=context if kubie else "", command=(argv or [title])[0] if not at_prompt else "")
         if kube_env is not None:
             state["kube_env"] = kube_env
+        if kube_category:
+            state.update(kube_category=kube_category, kube_namespace=kube_namespace)
         window = SimpleNamespace(id=1, user_vars={"terminal_dotfiles_state": json.dumps(state)} if metadata else {},
             child_is_remote=remote, get_cwd_of_child=lambda: cwd, at_prompt=at_prompt,
             child=SimpleNamespace(pid=os.getpid(), foreground_environ={},
@@ -61,8 +63,10 @@ class TitleTests(unittest.TestCase):
         tab = SimpleNamespace(name=name, active_window=window)
         module = ModuleType("kitty.fast_data_types")
         module.get_boss = lambda: SimpleNamespace(tab_for_id=lambda _: tab)
+        module.wcswidth = len
         with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": module}):
-            return tabs.draw_title({"title": title, "tab_id": 1, "is_active": active, "fmt": formatter})
+            return tabs.draw_title({"title": title, "tab_id": 1, "index": 3, "is_active": active, "fmt": formatter,
+                                    "max_title_length": limit})
 
     def test_focus_preserves_label(self):
         for title in ("user@host: ~/project", "root@host: ~", "~", "~/project"):
@@ -147,6 +151,46 @@ class TitleTests(unittest.TestCase):
     def test_kubernetes_badge_preserves_nonstandard_starship_text(self):
         self.assertEqual(self.render("~", context="kube example/app", kube_env="TEST"), "TEST kube example/app")
         self.assertEqual(self.render("~", context="[☸ example::app]", kube_env=[]), "[☸ example::app]")
+
+    def test_bounded_template_preserves_category_and_literal_alias(self):
+        api = ModuleType("kitty.tab_bar")
+        api.truncate_line = lambda value, width: value[:width - 1] + "…"
+        with patch.dict(sys.modules, {"kitty.tab_bar": api}):
+            for limit, expected in ((10, "PROD"), (15, "PROD PUBLIC"), (40, "PROD PUBLIC [☸ core::app]")):
+                with self.subTest(limit=limit):
+                    self.assertEqual(self.render("~", context="[☸ core::app]", kube_env="PROD",
+                                                 kube_category="PUBLIC", limit=limit), expected)
+            for environment in (None, 42):
+                self.assertEqual(self.render("~", context="core01", kube_env=environment,
+                                             kube_category="PUBLIC", limit=15), "core01")
+
+    def test_narrow_kubie_title_keeps_complete_badges_before_cluster_and_namespace(self):
+        fast = ModuleType("kitty.fast_data_types")
+        fast.wcswidth = len
+        api = ModuleType("kitty.tab_bar")
+        api.truncate_line = lambda value, width: value[:width - 1] + "…"
+        state = dict(context="core / east / long-namespace", kube_env="UAT", kube_color="88c0d0",
+                     kube_category="PUBLIC", kube_namespace="long-namespace")
+        title = " 3 " + tabs.kubernetes_title(state, None) + " htop"
+        self.assertEqual(title, " 3 UAT PUBLIC core / east / long-namespace htop")
+        with patch.dict(sys.modules, {"kitty": ModuleType("kitty"), "kitty.fast_data_types": fast, "kitty.tab_bar": api}):
+            for width, expected in (
+                (6, " 3 UAT"),
+                (12, " 3 UAT"),
+                (13, " 3 UAT PUBLIC"),
+                (18, " 3 UAT PUBLIC cor…"),
+                (25, " 3 UAT PUBLIC core / east"),
+                (30, " 3 UAT PUBLIC core / east htop"),
+                (34, " 3 UAT PUBLIC core / east / … htop"),
+                (35, " 3 UAT PUBLIC core / east / l… htop"),
+            ):
+                with self.subTest(width=width):
+                    result = tabs.fit_kubernetes_title(title, width, state, "htop")
+                    self.assertEqual(result, expected)
+                    self.assertLessEqual(len(result), width)
+            command = "longer-than-the-full-tab-width-executable"
+            self.assertEqual(tabs.fit_kubernetes_title(title.removesuffix("htop") + command, 42, state, command),
+                             " 3 UAT PUBLIC core / east / long-namespace")
 
     def test_return_to_parent_invalidates_same_frame_cache(self):
         child = SimpleNamespace(pid=os.getpid(), pid_for_cwd=101, foreground_cmdline=["zsh"])
@@ -379,6 +423,8 @@ class ShellMetadataTests(unittest.TestCase):
             self.assertGreater(state["pid"], 0)
             self.assertEqual(tabs.plain_title(state["context"]), "dev:example / app")
             self.assertEqual(state["kube_env"], "DEV")
+            self.assertEqual(state["kube_category"], "LAB")
+            self.assertEqual(state["kube_namespace"], "app")
             self.assertEqual(state["phase"], "prompt")
             self.assertEqual(output.count("_terminal_dotfiles_kubie_title"), 1)
 
@@ -398,6 +444,8 @@ class ShellMetadataTests(unittest.TestCase):
                 state = json.loads(base64.b64decode(value))
                 self.assertEqual(state["context"], "")
                 self.assertEqual(state["kube_env"], "")
+                self.assertEqual(state["kube_category"], "")
+                self.assertEqual(state["kube_namespace"], "")
 
     def test_unverified_environment_keeps_starship_context_without_badge(self):
         for shell in SHELLS:

@@ -49,24 +49,45 @@ class ResolutionTests(unittest.TestCase):
             active = home / 'active'
             active.write_text(source.read_text())
             (home / '.kube/kubie.yaml').write_text('configs:\n  include: ["~/.kube/configs/**/*.yaml"]\n')
-            self.assertEqual(resolver.resolve(home, active)['environment'], 'uat')
+            def labels():
+                state = resolver.resolve(home, active)
+                return state['environment'], state['category']
+
+            self.assertEqual(labels(), ('uat', 'LAB'))
             duplicate = source.with_name('duplicate.yaml')
             duplicate.write_text(source.read_text())
             self.assertEqual(resolver.resolve(home, active)['reason'], 'ambiguous-source')
+            self.assertEqual(labels(), ('?ENV', '?CAT'))
             duplicate.unlink()
             policy = home / '.config/terminal-dotfiles/kube-environments.yaml'
             policy.parent.mkdir(parents=True)
             data = dict(environments={'custom':dict(label='CUSTOM',color='112233')}, overrides=[
                 dict(source='lab/uat/fixture.yaml',context='k3s-dev',environment='custom')])
             policy.write_text(yaml.safe_dump(data))
-            self.assertEqual(resolver.resolve(home, active)['environment'], 'custom')
+            self.assertEqual(labels(), ('custom', 'LAB'))
             data['overrides'] *= 2
             policy.write_text(yaml.safe_dump(data))
             self.assertEqual(resolver.resolve(home, active)['reason'], 'conflicting-overrides')
             policy.unlink()
+            for relative, expected in (
+                ('local/prod/fixture.yaml', ('prod', 'LOCAL')),
+                ('corp/company/shared.yaml', ('?ENV', 'CORP')),
+                ('public/provider/account/prod/fixture.yaml', ('prod', 'PUBLIC')),
+                ('other/prod/fixture.yaml', ('?ENV', '?CAT')),
+            ):
+                with self.subTest(source=relative):
+                    destination = root / relative
+                    destination.parent.mkdir(parents=True)
+                    source.rename(destination)
+                    source = destination
+                    self.assertEqual(labels(), expected)
+            data['overrides'] = [dict(source='other/prod/fixture.yaml', context='k3s-dev', environment='custom')]
+            policy.write_text(yaml.safe_dump(data))
+            self.assertEqual(labels(), ('custom', '?CAT'))
             doc['clusters'][0]['cluster']['server'] = 'https://different.invalid'
             active.write_text(yaml.safe_dump(doc))
             self.assertEqual(resolver.resolve(home, active)['reason'], 'connection-mismatch')
+            self.assertEqual(labels(), ('?ENV', '?CAT'))
 
     def test_exclusions_aliases_and_invalid_profiles(self):
         with TemporaryDirectory() as temp:

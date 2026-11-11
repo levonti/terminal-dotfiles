@@ -137,24 +137,24 @@ class RealKubieCycleTests(unittest.TestCase):
                 render("project", wait_for("prompt"))
                 # One fixture context is selected automatically by real `kubie ctx`.
                 os.write(fd, b"kubie ctx -n app\n")
-                render("PROD core01 / app", wait_for("prompt"), prompt_label="[PROD] core01 / app")
+                render("PROD LAB core01 / app", wait_for("prompt"), prompt_label="[PROD] LAB core01 / app")
                 for iteration in range(2):
                     os.write(fd, b"htop --readonly --pid $$\n")
                     wait_for("tui")
-                    render("PROD core01 / app htop", htop=True)
+                    render("PROD LAB core01 / app htop", htop=True)
                     os.write(fd, b"q")
-                    render("PROD core01 / app", wait_for("prompt"), prompt_label="[PROD] core01 / app")
+                    render("PROD LAB core01 / app", wait_for("prompt"), prompt_label="[PROD] LAB core01 / app")
                     os.write(fd, b"kubie ns changed\n")
-                    render("PROD core01 / changed", wait_for("prompt"), prompt_label="[PROD] core01 / changed")
+                    render("PROD LAB core01 / changed", wait_for("prompt"), prompt_label="[PROD] LAB core01 / changed")
                     os.write(fd, b"exit\n")
                     render("project", wait_for("prompt"))
                     if iteration == 0:
                         policy.unlink()
                         os.write(fd, b"kubie ctx prod:fixture -n app\n")
-                        render("PROD prod:fixture / app", wait_for("prompt"), prompt_label="[PROD] prod:fixture / app")
+                        render("PROD LAB prod:fixture / app", wait_for("prompt"), prompt_label="[PROD] LAB prod:fixture / app")
                         policy.write_text("context_labels:\n  'prod:fixture': core01\n")
                         os.write(fd, b"\n")
-                        render("PROD core01 / app", wait_for("prompt"), prompt_label="[PROD] core01 / app")
+                        render("PROD LAB core01 / app", wait_for("prompt"), prompt_label="[PROD] LAB core01 / app")
             finally:
                 os.close(fd)
                 try:

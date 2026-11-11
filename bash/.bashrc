@@ -47,14 +47,17 @@ fi
 if [[ -n ${KITTY_WINDOW_ID-} && -z ${SSH_TTY-}${SSH_CONNECTION-} ]]; then
   _terminal_dotfiles_publish_state() {
     local phase=$1 program=${2-} directory=$PWD context=${_terminal_dotfiles_kube_label-} encoded
+    local namespace=${_terminal_dotfiles_kube_namespace-}
     directory=${directory//[[:cntrl:]]/}
     program=${program//[[:cntrl:]]/}
     directory=${directory//\\/\\\\}; directory=${directory//\"/\\\"}
     context=${context//\\/\\\\}; context=${context//\"/\\\"}
     context=${context//$'\033'/\\u001b}; context=${context//[[:cntrl:]]/}
     program=${program//\\/\\\\}; program=${program//\"/\\\"}
-    encoded=$(printf '{"v":1,"pid":%s,"phase":"%s","cwd":"%s","context":"%s","command":"%s","kube_env":"%s","kube_color":"%s"}' \
-      "$$" "$phase" "$directory" "$context" "$program" "${_terminal_dotfiles_kube_env-}" "${_terminal_dotfiles_kube_color-}" | command base64 | command tr -d '\r\n')
+    namespace=${namespace//\\/\\\\}; namespace=${namespace//\"/\\\"}
+    namespace=${namespace//[[:cntrl:]]/}
+    encoded=$(printf '{"v":1,"pid":%s,"phase":"%s","cwd":"%s","context":"%s","command":"%s","kube_env":"%s","kube_color":"%s","kube_category":"%s","kube_namespace":"%s"}' \
+      "$$" "$phase" "$directory" "$context" "$program" "${_terminal_dotfiles_kube_env-}" "${_terminal_dotfiles_kube_color-}" "${_terminal_dotfiles_kube_category-}" "$namespace" | command base64 | command tr -d '\r\n')
     printf '\033]1337;SetUserVar=terminal_dotfiles_state=%s\007' "$encoded"
   }
   _terminal_dotfiles_kubie_title() {
@@ -62,11 +65,16 @@ if [[ -n ${KITTY_WINDOW_ID-} && -z ${SSH_TTY-}${SSH_CONNECTION-} ]]; then
     _terminal_dotfiles_kube_label=''
     _terminal_dotfiles_kube_env=''
     _terminal_dotfiles_kube_color=''
+    _terminal_dotfiles_kube_category=''
+    _terminal_dotfiles_kube_namespace=''
     if [[ -n ${KUBIE_ACTIVE-} && -x "$HOME/.config/terminal-dotfiles/kube-environment" ]]; then
       local metadata
-      metadata=$("$HOME/.config/terminal-dotfiles/kube-environment" --state 2>/dev/null)
+      metadata=$("$HOME/.config/terminal-dotfiles/kube-environment" --state --with-category 2>/dev/null)
       if [[ -n $metadata ]]; then
         IFS=$'\t' read -r _terminal_dotfiles_kube_env _terminal_dotfiles_kube_color _terminal_dotfiles_kube_label <<< "$metadata"
+        if [[ $metadata == *$'\n'* ]]; then
+          IFS=$'\t' read -r _terminal_dotfiles_kube_category _terminal_dotfiles_kube_namespace <<< "${metadata#*$'\n'}"
+        fi
       fi
     fi
     _terminal_dotfiles_publish_state prompt

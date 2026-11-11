@@ -10,6 +10,7 @@ import yaml
 DEFAULTS = {k: dict(label=k.upper(), color=v) for k, v in
             [('dev', 'a3be8c'), ('test', 'ebcb8b'), ('prod', 'ed8796'),
              ('uat', '88c0d0'), ('nt', 'b48ead')]}
+CATEGORY_DEPTHS = {'lab': 3, 'local': 3, 'corp': 4, 'public': 5}
 
 
 class UniqueLoader(yaml.SafeLoader):
@@ -48,7 +49,7 @@ def stable_user_config(user):
 
 def resolve(home, active, settings=None):
     home = Path(home)
-    result = dict(environment='?ENV', label='?ENV', color='c1a7d5', reason='unmapped')
+    result = dict(environment='?ENV', label='?ENV', color='c1a7d5', category='?CAT', reason='unmapped')
     def expand(value):
         return str(home / value[2:]) if value.startswith('~/') else value
     try:
@@ -92,16 +93,16 @@ def resolve(home, active, settings=None):
                 return result
         relative = path.relative_to(root).as_posix() if path.is_relative_to(root) else str(path)
         result['source'] = relative
+        parts = Path(relative).parts
+        depth = CATEGORY_DEPTHS.get(parts[0]) if len(parts) > 1 else None
+        if depth is not None:
+            result['category'] = parts[0].upper()
         overrides = [x['environment'] for x in policy.get('overrides', [])
                      if x['source'] == relative and x['context'] == name]
         if len(overrides) > 1:
             result['reason'] = 'conflicting-overrides'
             return result
-        parts = Path(relative).parts
-        valid = ((len(parts) == 3 and parts[0] in ('lab', 'local')) or
-                 (len(parts) == 4 and parts[0] == 'corp') or
-                 (len(parts) == 5 and parts[0] == 'public'))
-        env = overrides[0] if overrides else aliases.get(parts[-2], parts[-2]) if valid else None
+        env = overrides[0] if overrides else aliases.get(parts[-2], parts[-2]) if len(parts) == depth else None
         profile = profiles.get(env)
         if not profile:
             return result
@@ -134,11 +135,13 @@ def main():
         print(json.dumps(state))
     elif '--state' in sys.argv:
         print(state['label'] + '\t' + state['color'] + '\t' + context + suffix)
+        if '--with-category' in sys.argv:
+            print(state['category'] + '\t' + namespace)
     elif context:
         rgb = ';'.join(str(int(state['color'][i:i+2], 16)) for i in (0, 2, 4))
         badge = f'\033[1;38;2;23;27;36;48;2;{rgb}m[{state["label"]}]\033[0m'
         detail = f'\033[38;2;162;173;189m{suffix}\033[0m' if suffix else ''
-        print(f'{badge} {context}{detail}', end='')
+        print(f'{badge} {state["category"]} {context}{detail}', end='')
 
 
 if __name__ == '__main__':
