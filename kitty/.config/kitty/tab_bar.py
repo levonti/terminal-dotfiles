@@ -390,6 +390,7 @@ def accent_kubernetes_icon(title, formatter, raw_context):
 
 KUBE_BADGE_COLORS = {"DEV": "a3be8c", "TEST": "ebcb8b", "PROD": "ed8796", "?ENV": "c1a7d5"}
 KUBE_PROMPT_PREFIXES = {"DEV": "DEV ", "TEST": "TEST ", "?ENV": "? ENV "}
+KUBE_CATEGORIES = ("LAB", "LOCAL", "CORP", "PUBLIC", "?CAT")
 
 
 def kubernetes_title(state, formatter):
@@ -400,13 +401,14 @@ def kubernetes_title(state, formatter):
     if not isinstance(environment, str) or not re.fullmatch(r"[A-Z0-9?_-]{1,12}", environment) or not isinstance(color, str) or not re.fullmatch(r"[0-9a-fA-F]{6}", color):
         return accent_kubernetes_icon(title, formatter, state["context"])
 
-    if title.startswith("[☸ ") and title.endswith("]"):
+    category = state.get("kube_category")
+    if category not in KUBE_CATEGORIES and title.startswith("[☸ ") and title.endswith("]"):
         title = title[3:-1].removeprefix(KUBE_PROMPT_PREFIXES.get(environment, ""))
     badge = environment
     if formatter:
         background = getattr(formatter.bg, "_" + color)
         badge = f"{background}{formatter.fg._171b24}\x1b[1m{badge}\x1b[22m{formatter.bg.tab}{formatter.fg.tab}"
-    return f"{badge} {title}"
+    return f"{badge} {category} {title}" if category in KUBE_CATEGORIES else f"{badge} {title}"
 
 
 def draw_title(data):
@@ -430,7 +432,20 @@ def draw_title(data):
         cached = window._dotfiles_title_cache = key, now, state, window_title(window, title, state)
     _, _, state, detail = cached
     context = kubernetes_title(state, data.get("fmt"))
-    return " ".join(part for part in (context, detail) if part)
+    title = " ".join(part for part in (context, detail) if part)
+    # Built-in tab styles supply a title budget. The custom renderer measures
+    # the complete template first and fits it after allocating column widths.
+    if ((limit := data.get("max_title_length", 0)) > 0 and context
+            and state.get("kube_category") in KUBE_CATEGORIES and isinstance(environment := state.get("kube_env"), str)):
+        from kitty.fast_data_types import wcswidth
+
+        decorations = "".join(data.get(key, "") for key in ("bell_symbol", "activity_symbol", "secure_input_symbol"))
+        template_width = len(str(data["index"])) + 3 + wcswidth(decorations)
+        width = max(len(environment), limit - template_width)
+        fitted = fit_kubernetes_title(title, width, state, detail)
+        if fitted is not None:
+            return fitted
+    return title
 
 
 def window_title(window, title, state):
@@ -467,6 +482,46 @@ def window_title(window, title, state):
     if not identity:
         return compact_title(title)
     return f"{identity} {command}" if command else identity
+
+
+def fit_kubernetes_title(title, width, state, command):
+    from kitty.fast_data_types import wcswidth
+    from kitty.tab_bar import truncate_line
+
+    if not state or (category := state.get("kube_category")) not in KUBE_CATEGORIES:
+        return None
+    context = plain_title(state["context"])
+    command_suffix = f" {command}" if command else ""
+    tail = f" {category} {context}{command_suffix}"
+    if not context or not title.endswith(tail):
+        return None
+
+    def cells(value):
+        return wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", value))
+
+    if cells(title) <= width:
+        return title
+    badge = title[:-len(tail)]
+    if cells(badge) > width:
+        return truncate_line(title, width)
+    prefix = f"{badge} {category}"
+    if cells(prefix) > width:
+        return badge
+
+    namespace = state.get("kube_namespace")
+    suffix = f" / {namespace.rstrip()}" if isinstance(namespace, str) and namespace else ""
+    if not suffix or not context.endswith(suffix):
+        suffix = ""
+    cluster = prefix + " " + context.removesuffix(suffix)
+    if cells(cluster) > width:
+        return truncate_line(cluster, width) if cells(prefix) + 2 <= width else prefix
+    if cells(cluster + command_suffix) > width:
+        command_suffix = ""
+    if cells(cluster + suffix + command_suffix) <= width:
+        return cluster + suffix + command_suffix
+    if suffix and cells(cluster + " / …" + command_suffix) <= width:
+        return truncate_line(cluster + suffix, width - cells(command_suffix)) + command_suffix
+    return cluster + command_suffix
 
 
 def fit_title(title, width, restore_fg=""):
@@ -604,7 +659,8 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
     if sys.platform not in ("darwin", "linux") or draw_data.tab_bar_edge not in ("top", "bottom"):
         return draw_tab_with_fade(draw_data, screen, tab, before, max_tab_length, index, is_last, extra_data)
 
-    manager = get_boss().os_window_map.get(draw_data.os_window_id)
+    boss = get_boss()
+    manager = boss.os_window_map.get(draw_data.os_window_id)
     tab_bar = manager.tab_bar if manager else None
     data = tab_bar.last_laid_out_tabs if tab_bar is not None else (tab,)
     titles = [apply_title_template(draw_data, item, i + 1).split("\n", 1)[0].rstrip() for i, item in enumerate(data)]
@@ -632,7 +688,10 @@ def draw_tab(draw_data, screen, tab, before, max_tab_length, index, is_last, ext
         if wcswidth(re.sub(r"\x1b\[[0-9;:]*m", "", title)) > width - 1:
             fg = color_as_int(draw_data.tab_fg(tab))
             restore_fg = f"\x1b[38;2;{fg >> 16};{(fg >> 8) & 255};{fg & 255}m"
-            title = fit_title(title, width - 1, restore_fg)
+            current = boss.tab_for_id(tab.tab_id)
+            cache = getattr(current.active_window, "_dotfiles_title_cache", None) if current and not current.name else None
+            fitted = fit_kubernetes_title(title, width - 1, *cache[2:]) if cache and len(cache) == 4 else None
+            title = fitted if fitted is not None else fit_title(title, width - 1, restore_fg)
         draw_attributed_string(title, screen)
     screen.cursor.x = start + width
     end = max(start, screen.cursor.x - 1)

@@ -88,14 +88,14 @@ The shared `.zshrc` adds the standard user and Homebrew binary directories to `P
 
 Optional Kubie keeps Kubernetes contexts and namespaces separate across tabs and reads individual kubeconfigs from `~/.kube/configs/`. Select a context in each tab with `kubie ctx`. The menu preserves the original context names.
 
-Within a Kubie session, Starship and Kitty show a shared environment badge followed by `context / namespace`. An optional display label can shorten the exact context name. The resolver uses the original kubeconfig directory and exact overrides, with configurable environments including DEV, TEST, PROD, UAT and NT. Install the optional runtime with `sh scripts/setup-kube-environment.sh`. [Setup and diagnostics (Russian)](docs/kubie.md).
+Within a Kubie session, Starship and Kitty show a colored environment badge, a separate cluster category (LAB, LOCAL, CORP or PUBLIC), and `context / namespace`. The resolver gets the category from the original kubeconfig directory and supports exact overrides for the environment. An optional display label can shorten the exact context name. Install the optional runtime with `sh scripts/setup-kube-environment.sh`. [Setup and diagnostics (Russian)](docs/kubie.md).
 
 
 ## Kitty tabs
 
 The tab bar uses a flat layout with gaps, a high-contrast active tab, numbers, and compact titles. Use `Command/Super+1…9` to jump to a tab by number, `Command/Super+P` to open the tab list, and `Command/Super+Shift+T` to name the session. On Ubuntu, use `Ctrl+Shift+1…9` to jump to a tab and `Ctrl+Shift+Left/Right` to move between adjacent tabs. The numbered shortcuts override Kitty's pane shortcuts on Ubuntu. [Ubuntu GNOME (Russian)](docs/ubuntu-24.04-gnome.md) · [Ubuntu KDE (Russian)](docs/ubuntu-24.04-kde.md).
 
-Tab titles retain the directory while a program runs (for example, `project htop`) and include the host and command reported by the server over SSH. Kubie tabs show a colored `DEV`, `TEST`, `PROD`, or `?ENV` badge before the cluster and namespace. Starship separates context from the input line and shows Git status counters. [Appearance and prompt options (Russian)](docs/appearance.md) · [Kitty tab settings (Russian)](docs/kitty-tabs.md).
+Tab titles retain the directory while a program runs (for example, `project htop`) and include the host and command reported by the server over SSH. Kubie tabs give the environment badge and cluster category priority when space runs short. Starship separates context from the input line and shows Git status counters. [Appearance and prompt options (Russian)](docs/appearance.md) · [Kitty tab settings (Russian)](docs/kitty-tabs.md).
 
 ### Kitty network panel
 

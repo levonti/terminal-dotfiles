@@ -21,7 +21,7 @@ class StarshipPromptTests(unittest.TestCase):
             repo.mkdir()
             helper = home / '.config/terminal-dotfiles/kube-environment'
             helper.parent.mkdir(parents=True)
-            helper.write_text("#!/bin/sh\nprintf '[PROD] core01 / app'\n")
+            helper.write_text("#!/bin/sh\nprintf '[PROD] LAB core01 / app'\n")
             helper.chmod(0o755)
             env = dict(HOME=str(home), PATH=os.environ['PATH'], TERM='xterm-256color',
                        LANG='en_US.UTF-8', STARSHIP_SHELL='zsh', GIT_CONFIG_NOSYSTEM='1',
@@ -37,7 +37,7 @@ class StarshipPromptTests(unittest.TestCase):
                 return re.sub(r'\x1b\[[0-9;:]*m|%[{}]', '', result.stdout).strip()
 
             self.assertEqual(prompt(home), 'zsh  ~ \n❯')
-            self.assertEqual(prompt(home, kube=True), 'zsh 󱃾 [PROD] core01 / app │  ~ \n❯')
+            self.assertEqual(prompt(home, kube=True), 'zsh 󱃾 [PROD] LAB core01 / app │  ~ \n❯')
 
             branch = 'ai/kitty-active-tab-background'
             git('init', '-qb', 'main')
@@ -46,7 +46,7 @@ class StarshipPromptTests(unittest.TestCase):
             git('switch', '-qc', branch)
             self.assertEqual(prompt(repo), 'zsh  project │  ai/…tab-background \n❯')
             self.assertEqual(prompt(repo, kube=True),
-                             'zsh 󱃾 [PROD] core01 / app │  project │  ai/…tab-background \n❯')
+                             'zsh 󱃾 [PROD] LAB core01 / app │  project │  ai/…tab-background \n❯')
 
             helper.write_text('#!/bin/sh\nexit 0\n')
             self.assertEqual(prompt(repo, kube=True), prompt(repo))
