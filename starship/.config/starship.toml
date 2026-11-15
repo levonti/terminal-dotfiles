@@ -1,4 +1,5 @@
 # Shared prompt: directory emphasis, quieter shell label, explicit Git counts.
+scan_timeout = 100
 add_newline = true
 format = '$hostname$shell${custom.kube_environment}$directory${custom.git_branch}$git_status$line_break$character'
 right_format = '$status$cmd_duration'
