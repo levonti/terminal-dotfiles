@@ -41,6 +41,20 @@ fi
 
 if command -v starship >/dev/null 2>&1; then
   eval "$(starship init bash)"
+  _terminal_dotfiles_refresh_kube_prompt() {
+    "${_terminal_dotfiles_previous_starship_precmd:-:}"
+    local kube_prompt helper="$HOME/.config/terminal-dotfiles/kube-environment"
+    if [[ -n ${KUBIE_ACTIVE-} && -x $helper ]] &&
+       kube_prompt=$("$helper" 2>/dev/null) && [[ -n $kube_prompt ]]; then
+      export TERMINAL_DOTFILES_KUBE_PROMPT="$kube_prompt"
+    else
+      unset TERMINAL_DOTFILES_KUBE_PROMPT
+    fi
+  }
+  if [[ ${starship_precmd_user_func-} != _terminal_dotfiles_refresh_kube_prompt ]]; then
+    _terminal_dotfiles_previous_starship_precmd=${starship_precmd_user_func-}
+    starship_precmd_user_func=_terminal_dotfiles_refresh_kube_prompt
+  fi
 fi
 
 # Publish local prompt state explicitly, including shells nested by Kubie.

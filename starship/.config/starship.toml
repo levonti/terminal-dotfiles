@@ -1,7 +1,7 @@
 # Shared prompt: directory emphasis, quieter shell label, explicit Git counts.
 scan_timeout = 100
 add_newline = true
-format = '$hostname$shell${custom.kube_environment}$directory${custom.git_branch}$git_status$line_break$character'
+format = '$hostname$shell${env_var.kube_environment}$directory${custom.git_branch}$git_status$line_break$character'
 right_format = '$status$cmd_duration'
 
 [hostname]
@@ -68,11 +68,9 @@ staged = '+$count '
 renamed = 'rename:$count '
 deleted = '-$count '
 
-[custom.kube_environment]
-when = 'test -n "$KUBIE_ACTIVE"'
-command = '"$HOME/.config/terminal-dotfiles/kube-environment"'
-format = '([󱃾](#a2adbd) $output [│](#626f82) )'
-shell = ['sh']
+[env_var.kube_environment]
+variable = 'TERMINAL_DOTFILES_KUBE_PROMPT'
+format = '([󱃾](#a2adbd) $env_value [│](#626f82) )'
 
 [status]
 disabled = false

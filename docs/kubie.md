@@ -74,6 +74,6 @@ context_labels:
 
 Диагностика показывает окружение, категорию (`category`), источник и причину решения, без credentials и адреса API. `ambiguous-source` означает дубликат, `connection-mismatch` — несовпадение подключения, `conflicting-overrides` — несколько исключений. Для неизвестного каталога проверьте структуру и справочник.
 
-При собственном `STARSHIP_CONFIG` перенесите секцию `[custom.kube_environment]` и `${custom.kube_environment}` в формат prompt. Старые правила `[kubernetes.contexts]` больше не нужны.
+При собственном `STARSHIP_CONFIG` перенесите секцию `[env_var.kube_environment]` и `${env_var.kube_environment}` в формат prompt. Если конфигурация уже содержит `[custom.kube_environment]`, замените эту секцию и ссылку на неё в `format`. Откройте новую сессию оболочки, чтобы подключить обработчик, который передаёт метку Starship.
 
-Проверяйте две параллельные сессии, смену namespace, выход и повторный вход. Локальные тесты используют временные kubeconfig и не обращаются к кластеру. Документация: [Kubie](https://github.com/kubie-org/kubie), [Starship custom modules](https://starship.rs/config/#custom-commands).
+Проверяйте две параллельные сессии, смену namespace, выход и повторный вход. Локальные тесты используют временные kubeconfig и не обращаются к кластеру. Документация [Kubie](https://github.com/kubie-org/kubie) и [модуля `env_var` в Starship](https://starship.rs/config/#environment-variable).

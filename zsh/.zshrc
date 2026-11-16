@@ -40,6 +40,17 @@ fi
 # Prompt shared by all terminals and both operating systems.
 if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
+  _terminal_dotfiles_refresh_kube_prompt() {
+    local kube_prompt helper="$HOME/.config/terminal-dotfiles/kube-environment"
+    if [[ -n ${KUBIE_ACTIVE-} && -x $helper ]] &&
+       kube_prompt=$("$helper" 2>/dev/null) && [[ -n $kube_prompt ]]; then
+      export TERMINAL_DOTFILES_KUBE_PROMPT="$kube_prompt"
+    else
+      unset TERMINAL_DOTFILES_KUBE_PROMPT
+    fi
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _terminal_dotfiles_refresh_kube_prompt
 fi
 
 # Publish a complete local shell snapshot; nested Kubie shells have no native
