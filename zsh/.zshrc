@@ -4,6 +4,12 @@
 alias k='kubectl'
 alias y='yazi'
 
+# Persist commands immediately and share them across interactive Zsh sessions.
+HISTFILE=${HISTFILE-"$HOME/.zsh_history"}
+HISTSIZE=20000
+SAVEHIST=10000
+setopt SHARE_HISTORY
+
 # Make user-installed tools and Homebrew visible before initialization.
 typeset -U path
 for bin_dir in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin"; do
@@ -119,6 +125,11 @@ done
 # Optional host-specific overrides; keep this file outside the public repo.
 # Load before syntax highlighting, which should remain last.
 [[ -r "$HOME/.zshrc.local.post" ]] && source "$HOME/.zshrc.local.post"
+
+# The incremental history modes are mutually exclusive. Honor local choices.
+if [[ -o INC_APPEND_HISTORY || -o INC_APPEND_HISTORY_TIME ]]; then
+  unsetopt SHARE_HISTORY
+fi
 
 for plugin_file in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do
   if [[ -r $plugin_file ]]; then
